@@ -309,29 +309,35 @@ def elegir_hueco_habito(
     disponibilidad: list[DisponibilidadDB],
     bloques_creados: list[BloquePlanDB],
     eventos_fijos: list[EventoFijoDB],
+    dia_minimo: int = 0,
+    dia_maximo: int = 6,
 ) -> tuple[int, int] | None:
     candidatos = obtener_huecos_candidatos(
         disponibilidad,
         bloques_creados,
         eventos_fijos,
         objetivo.duracion_minutos,
+        dia_minimo=dia_minimo,
+        dia_maximo=dia_maximo,
     )
     if not candidatos:
         return None
 
     dias_usados = dias_con_bloques_objetivo(bloques_creados, objetivo.id)
+    candidatos = [candidato for candidato in candidatos if candidato[0] not in dias_usados]
+    if not candidatos:
+        return None
+
     carga_por_dia: dict[int, int] = {}
     for bloque in bloques_creados:
         if bloque.estado == "pendiente":
             carga_por_dia[bloque.dia_semana] = carga_por_dia.get(bloque.dia_semana, 0) + 1
 
-    def clave(candidato: tuple[int, int]) -> tuple[int, int, int, int, int, int]:
+    def clave(candidato: tuple[int, int]) -> tuple[int, int, int, int, int]:
         dia, inicio = candidato
-        mismo_dia = 1 if dia in dias_usados else 0
         consecutivo = 1 if any(abs(dia - usado) <= 1 for usado in dias_usados) else 0
         separacion = 0 if not dias_usados else min(abs(dia - usado) for usado in dias_usados)
         return (
-            mismo_dia,
             consecutivo,
             -separacion,
             carga_por_dia.get(dia, 0),
@@ -815,13 +821,23 @@ def marcar_bloque_fallado(bloque_id: int, db: Session = Depends(get_db)):
         .order_by(EventoFijoDB.fecha, EventoFijoDB.inicio_minutos)
         .all()
     )
-    hueco = primer_hueco(
-        disponibilidad,
-        otros_bloques,
-        eventos_fijos,
-        bloque.fin_minutos - bloque.inicio_minutos,
-        dia_minimo=min(bloque.dia_semana + 1, 6),
-    )
+    dia_minimo_replanificacion = min(bloque.dia_semana + 1, 6)
+    if bloque.objetivo and bloque.objetivo.tipo == "habito":
+        hueco = elegir_hueco_habito(
+            bloque.objetivo,
+            disponibilidad,
+            otros_bloques,
+            eventos_fijos,
+            dia_minimo=dia_minimo_replanificacion,
+        )
+    else:
+        hueco = primer_hueco(
+            disponibilidad,
+            otros_bloques,
+            eventos_fijos,
+            bloque.fin_minutos - bloque.inicio_minutos,
+            dia_minimo=dia_minimo_replanificacion,
+        )
 
     nuevo_bloque = None
     if hueco is not None:

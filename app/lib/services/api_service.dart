@@ -88,7 +88,10 @@ class ApiService {
 
     if (response.statusCode != 200) {
       throw Exception(
-        _extraerMensajeError(response.body, 'No se pudo crear la tarea flexible'),
+        _extraerMensajeError(
+          response.body,
+          'No se pudo crear la tarea flexible',
+        ),
       );
     }
   }
@@ -183,7 +186,10 @@ class ApiService {
     final response = await _client.delete(_uri('/eventos-fijos/$id'));
     if (response.statusCode != 200) {
       throw Exception(
-        _extraerMensajeError(response.body, 'No se pudo eliminar el evento fijo'),
+        _extraerMensajeError(
+          response.body,
+          'No se pudo eliminar el evento fijo',
+        ),
       );
     }
   }
@@ -242,7 +248,10 @@ class ApiService {
     final response = await _client.patch(_uri('/bloques/$id/fallado'));
     if (response.statusCode != 200) {
       throw Exception(
-        _extraerMensajeError(response.body, 'No se pudo replanificar el bloque'),
+        _extraerMensajeError(
+          response.body,
+          'No se pudo replanificar el bloque',
+        ),
       );
     }
   }
