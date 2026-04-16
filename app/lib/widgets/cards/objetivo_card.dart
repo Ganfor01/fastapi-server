@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/objetivo.dart';
+import '../../theme/app_theme.dart';
 import 'icon_circle_button.dart';
 import 'mini_pill.dart';
 import 'status_badge.dart';
@@ -25,7 +26,9 @@ class ObjetivoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final estaCompletado = objetivo.completado;
-    final visual = _visualObjetivo(objetivo.tipo);
+    final palette = context.palette;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final visual = _visualObjetivo(objetivo.tipo, isDark);
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -34,8 +37,10 @@ class ObjetivoCard extends StatelessWidget {
         curve: Curves.easeOutCubic,
         decoration: BoxDecoration(
           gradient: estaCompletado
-              ? const LinearGradient(
-                  colors: [Color(0xFFF8FCF9), Color(0xFFF1FAF4)],
+              ? LinearGradient(
+                  colors: isDark
+                      ? const [Color(0xFF132019), Color(0xFF0F1814)]
+                      : const [Color(0xFFF8FCF9), Color(0xFFF1FAF4)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 )
@@ -60,14 +65,18 @@ class ObjetivoCard extends StatelessWidget {
                           height: 42,
                           decoration: BoxDecoration(
                             color: estaCompletado
-                                ? const Color(0xFFE7F7EC)
+                                ? (isDark
+                                      ? const Color(0xFF1B3726)
+                                      : const Color(0xFFE7F7EC))
                                 : visual.iconBackground,
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Icon(
                             estaCompletado ? Icons.check_rounded : visual.icon,
                             color: estaCompletado
-                                ? const Color(0xFF228B57)
+                                ? (isDark
+                                      ? const Color(0xFF7ED89F)
+                                      : const Color(0xFF228B57))
                                 : visual.iconColor,
                             size: 22,
                           ),
@@ -81,7 +90,9 @@ class ObjetivoCard extends StatelessWidget {
                             ),
                             decoration: BoxDecoration(
                               color: estaCompletado
-                                  ? const Color(0xFFE7F7EC)
+                                  ? (isDark
+                                        ? const Color(0xFF1B3726)
+                                        : const Color(0xFFE7F7EC))
                                   : visual.badgeBackground,
                               borderRadius: BorderRadius.circular(999),
                             ),
@@ -90,7 +101,9 @@ class ObjetivoCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: estaCompletado
-                                    ? const Color(0xFF228B57)
+                                    ? (isDark
+                                          ? const Color(0xFF7ED89F)
+                                          : const Color(0xFF228B57))
                                     : visual.badgeForeground,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -159,8 +172,8 @@ class ObjetivoCard extends StatelessWidget {
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                   color: estaCompletado
-                      ? const Color(0xFF7D8596)
-                      : const Color(0xFF171B24),
+                      ? palette.subtitleColor
+                      : palette.titleColor,
                   decoration: estaCompletado
                       ? TextDecoration.lineThrough
                       : TextDecoration.none,
@@ -173,9 +186,7 @@ class ObjetivoCard extends StatelessWidget {
                   duration: const Duration(milliseconds: 220),
                   curve: Curves.easeOutCubic,
                   style: TextStyle(
-                    color: estaCompletado
-                        ? const Color(0xFF8A92A3)
-                        : const Color(0xFF5F6778),
+                    color: palette.subtitleColor,
                     height: 1.4,
                   ),
                   child: Text(objetivo.detalle!),
@@ -195,7 +206,7 @@ class ObjetivoCard extends StatelessWidget {
                   MiniPill(label: '${objetivo.duracionMinutos} min'),
                   MiniPill(label: '${objetivo.sesionesPorSemana} sesiones'),
                   if (objetivo.fechaLimite != null)
-                    MiniPill(label: 'Limite ${objetivo.fechaLimite}'),
+                    MiniPill(label: 'Límite ${objetivo.fechaLimite}'),
                 ],
               ),
             ],
@@ -206,32 +217,34 @@ class ObjetivoCard extends StatelessWidget {
   }
 }
 
-_ObjetivoVisual _visualObjetivo(String tipo) {
+_ObjetivoVisual _visualObjetivo(String tipo, bool isDark) {
   switch (tipo) {
     case 'habito':
-      return const _ObjetivoVisual(
-        icon: Icons.repeat_rounded,
-        iconBackground: Color(0xFFE9F7EE),
-        iconColor: Color(0xFF1F8A4C),
-        badgeBackground: Color(0xFFEAF8EF),
-        badgeForeground: Color(0xFF1F8A4C),
-        helperLabel: 'Rutina semanal',
-        helperBackground: Color(0xFFEAF8EF),
-        helperForeground: Color(0xFF1F8A4C),
-        backgroundColors: [Color(0xFFFFFFFF), Color(0xFFF7FCF8)],
-      );
-    case 'fecha_limite':
     default:
-      return const _ObjetivoVisual(
-        icon: Icons.flag_rounded,
-        iconBackground: Color(0xFFFFF1E7),
-        iconColor: Color(0xFFB85B1E),
-        badgeBackground: Color(0xFFFFF3EA),
-        badgeForeground: Color(0xFFB85B1E),
-        helperLabel: 'Antes de una fecha',
-        helperBackground: Color(0xFFFFF3EA),
-        helperForeground: Color(0xFFB85B1E),
-        backgroundColors: [Color(0xFFFFFFFF), Color(0xFFFFFBF7)],
+      return _ObjetivoVisual(
+        icon: Icons.repeat_rounded,
+        iconBackground: isDark
+            ? const Color(0xFF1A3426)
+            : const Color(0xFFE9F7EE),
+        iconColor: isDark
+            ? const Color(0xFF7ED89F)
+            : const Color(0xFF1F8A4C),
+        badgeBackground: isDark
+            ? const Color(0xFF203626)
+            : const Color(0xFFEAF8EF),
+        badgeForeground: isDark
+            ? const Color(0xFF92E4B0)
+            : const Color(0xFF1F8A4C),
+        helperLabel: 'Rutina semanal',
+        helperBackground: isDark
+            ? const Color(0xFF203626)
+            : const Color(0xFFEAF8EF),
+        helperForeground: isDark
+            ? const Color(0xFF92E4B0)
+            : const Color(0xFF1F8A4C),
+        backgroundColors: isDark
+            ? const [Color(0xFF161F1A), Color(0xFF101813)]
+            : const [Color(0xFFFFFFFF), Color(0xFFF7FCF8)],
       );
   }
 }

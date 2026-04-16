@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../controllers/organizador_controller.dart';
+import '../models/disponibilidad.dart';
 import '../models/evento_fijo.dart';
 import '../models/habito.dart';
 import '../models/objetivo.dart';
 import '../models/plan_semanal.dart';
-import '../models/tarea_flexible.dart';
 import '../widgets/availability_pill.dart';
 import '../widgets/empty_card.dart';
 import '../widgets/hero_panel.dart';
@@ -19,8 +19,9 @@ class InicioScreen extends StatelessWidget {
     super.key,
     required this.plan,
     required this.controller,
+    required this.themeMode,
+    required this.onThemeModeSelected,
     required this.scrollController,
-    required this.onAddTask,
     required this.onAddHabit,
     required this.onAddEvent,
     required this.onAvailability,
@@ -33,8 +34,9 @@ class InicioScreen extends StatelessWidget {
 
   final PlanSemanal plan;
   final OrganizadorController controller;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeSelected;
   final ScrollController scrollController;
-  final VoidCallback onAddTask;
   final VoidCallback onAddHabit;
   final VoidCallback onAddEvent;
   final VoidCallback onAvailability;
@@ -52,68 +54,45 @@ class InicioScreen extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(18, 26, 18, 120),
       children: [
         HeroPanel(
-          onAddTask: onAddTask,
+          themeMode: themeMode,
+          onThemeModeSelected: onThemeModeSelected,
           onAddHabit: onAddHabit,
           onAddEvent: onAddEvent,
           onAvailability: onAvailability,
           onPlan: onPlan,
         ),
         const SizedBox(height: 18),
-        Row(
-          children: [
-            Expanded(
-              child: StatCard(
-                title: 'Objetivos activos',
-                value: '${plan.estadisticas.objetivosActivos}',
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: StatCard(
-                title: 'Bloques pendientes',
-                value: '${plan.estadisticas.bloquesPendientes}',
-              ),
-            ),
-          ],
+        StatCard(
+          title: 'Hábitos activos',
+          value: '${plan.habitos.length}',
+          caption: plan.habitos.isEmpty
+              ? 'Todavía no has añadido ninguno.'
+              : plan.habitos.map((habito) => habito.titulo).join(' · '),
         ),
         const SizedBox(height: 24),
         const SectionTitle(
-          title: 'Tareas flexibles',
-          subtitle:
-              'Cosas que quieres hacer antes de una fecha, pero sin hora fija.',
-        ),
-        const SizedBox(height: 12),
-        if (plan.tareasFlexibles.isEmpty)
-          const EmptyCard(
-            title: 'No hay tareas flexibles todavia',
-            subtitle: 'Prueba con algo como estudiar 5 horas antes del jueves.',
-          )
-        else
-          ...plan.tareasFlexibles.map(_buildTareaFlexibleCard),
-        const SizedBox(height: 24),
-        const SectionTitle(
-          title: 'Habitos',
+          title: 'Hábitos',
           subtitle: 'Rutinas que quieres repetir varias veces a la semana.',
         ),
         const SizedBox(height: 12),
         if (plan.habitos.isEmpty)
           const EmptyCard(
-            title: 'No hay habitos todavia',
-            subtitle: 'Anade algo como entrenar 3 dias o leer 4 sesiones.',
+            title: 'No hay hábitos todavía',
+            subtitle: 'Añade algo como entrenar 3 días o leer 4 sesiones.',
           )
         else
           ...plan.habitos.map(_buildHabitoCard),
         const SizedBox(height: 24),
         const SectionTitle(
-          title: 'Eventos fijos',
-          subtitle: 'Compromisos con hora cerrada que la app nunca movera.',
+          title: 'Eventos',
+          subtitle: 'Compromisos que reservas en una fecha concreta.',
         ),
         const SizedBox(height: 12),
         if (plan.eventosFijos.isEmpty)
           const EmptyCard(
-            title: 'No hay eventos fijos todavia',
+            title: 'No hay eventos todavía',
             subtitle:
-                'Anade cosas como examenes, citas o reuniones para reservar ese hueco.',
+                'Añade cosas como exámenes, citas, bodas o reuniones para reservar ese hueco.',
           )
         else
           ...plan.eventosFijos.map(_buildEventoFijoCard),
@@ -126,54 +105,68 @@ class InicioScreen extends StatelessWidget {
         const SizedBox(height: 12),
         if (plan.disponibilidad.isEmpty)
           const EmptyCard(
-            title: 'Aun no hay disponibilidad',
+            title: 'Aún no hay disponibilidad',
             subtitle:
-                'Define tus dias y horas disponibles para que la semana se organice sola.',
+                'Define tus días y horas disponibles para que la semana se organice sola.',
           )
         else
           Wrap(
             spacing: 10,
             runSpacing: 10,
-            children: plan.disponibilidad
-                .map((slot) => AvailabilityPill(slot: slot))
-                .toList(),
+            children: _buildDisponibilidadPills(plan.disponibilidad),
           ),
       ],
     );
   }
 
-  Widget _buildTareaFlexibleCard(TareaFlexible tarea) {
-    final objetivo = controller.objetivoDesdeTareaFlexible(tarea);
+  List<Widget> _buildDisponibilidadPills(List<Disponibilidad> disponibilidad) {
+    final grupos = <String, List<Disponibilidad>>{};
+    for (final slot in disponibilidad) {
+      final clave = '${slot.inicioHora}-${slot.finHora}';
+      grupos.putIfAbsent(clave, () => <Disponibilidad>[]).add(slot);
+    }
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 320),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) {
-        final fade = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-        );
-        return SizeTransition(
-          sizeFactor: fade,
-          axisAlignment: -1,
-          child: FadeTransition(opacity: fade, child: child),
-        );
-      },
-      child: controller.objetivosEliminando.contains(tarea.id)
-          ? SizedBox(key: ValueKey('objetivo-hidden-${tarea.id}'))
-          : Padding(
-              key: ValueKey('objetivo-${tarea.id}'),
-              padding: const EdgeInsets.only(bottom: 12),
-              child: ObjetivoCard(
-                objetivo: objetivo,
-                tipoLabel: 'Tarea flexible',
-                onComplete: () => onCompleteObjetivo(objetivo),
-                onDelete: () => onDeleteObjetivo(objetivo),
-                isBusy: controller.objetivosActualizando.contains(tarea.id),
-              ),
-            ),
-    );
+    final entries = grupos.entries.toList()
+      ..sort(
+        (a, b) => a.value.first.inicioMinutos.compareTo(
+          b.value.first.inicioMinutos,
+        ),
+      );
+
+    return entries.map((entry) {
+      final slots = [...entry.value]
+        ..sort((a, b) => a.diaSemana.compareTo(b.diaSemana));
+      return AvailabilityPill(
+        daysLabel: _daysSummary(slots),
+        timeLabel: entry.key,
+      );
+    }).toList();
+  }
+
+  String _daysSummary(List<Disponibilidad> slots) {
+    const nombresCortos = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    final indices = slots.map((slot) => slot.diaSemana).toList()..sort();
+
+    if (_sameDays(indices, const [0, 1, 2, 3, 4])) {
+      return 'Lunes a viernes';
+    }
+    if (_sameDays(indices, const [5, 6])) {
+      return 'Fin de semana';
+    }
+
+    return indices.map((dia) => nombresCortos[dia]).join(', ');
+  }
+
+  bool _sameDays(List<int> actual, List<int> expected) {
+    if (actual.length != expected.length) {
+      return false;
+    }
+    for (var i = 0; i < actual.length; i++) {
+      if (actual[i] != expected[i]) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Widget _buildHabitoCard(Habito habito) {
@@ -183,7 +176,7 @@ class InicioScreen extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: ObjetivoCard(
         objetivo: objetivo,
-        tipoLabel: 'Habito semanal',
+        tipoLabel: 'Hábito semanal',
         onComplete: () => onCompleteObjetivo(objetivo),
         onDelete: () => onDeleteObjetivo(objetivo),
         isBusy: controller.objetivosActualizando.contains(habito.id),
@@ -214,7 +207,10 @@ class InicioScreen extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 12),
               child: EventoFijoCard(
                 evento: evento,
-                fechaLabel: controller.fechaConDiaBonita(evento.fecha),
+                fechaLabel: controller.fechaRangoBonito(
+                  evento.fecha,
+                  evento.fechaFin,
+                ),
                 onEdit: () => onEditEvento(evento),
                 onDelete: () => onDeleteEvento(evento),
                 isBusy: controller.eventosActualizando.contains(evento.id),

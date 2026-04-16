@@ -5,12 +5,10 @@ import '../models/evento_fijo.dart';
 import '../models/habito.dart';
 import '../models/objetivo.dart';
 import '../models/plan_semanal.dart';
-import '../models/tarea_flexible.dart';
 import '../services/api_service.dart';
 import '../widgets/dialogs/disponibilidad_dialog.dart';
 import '../widgets/dialogs/evento_fijo_dialog.dart';
 import '../widgets/dialogs/habito_dialog.dart';
-import '../widgets/dialogs/tarea_flexible_dialog.dart';
 
 class OrganizadorController extends ChangeNotifier {
   OrganizadorController({ApiService? apiService})
@@ -27,6 +25,7 @@ class OrganizadorController extends ChangeNotifier {
   late Future<PlanSemanal> planFuture;
   late int diaSeleccionado;
   int pantallaSeleccionada = 0;
+  int weekOffset = 0;
 
   void inicializar() {
     diaSeleccionado = DateTime.now().weekday - 1;
@@ -34,12 +33,13 @@ class OrganizadorController extends ChangeNotifier {
   }
 
   void recargarPlan() {
-    planFuture = _apiService.obtenerPlanSemanal();
+    planFuture = _apiService.obtenerPlanSemanal(weekOffset: weekOffset);
     notifyListeners();
   }
 
   void cachearPlan(PlanSemanal plan) {
     ultimoPlan = plan;
+    weekOffset = plan.weekOffset;
   }
 
   void asegurarDiaSeleccionadoValido(PlanSemanal plan) {
@@ -58,15 +58,18 @@ class OrganizadorController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> crearTareaFlexible(TareaFlexibleData datos) async {
-    await _apiService.crearTareaFlexible(
-      titulo: datos.titulo,
-      detalle: datos.detalle,
-      fechaLimite: datos.fechaLimite,
-      prioridad: datos.prioridad,
-      duracionMinutos: datos.duracionMinutos,
-      sesionesPorSemana: datos.sesionesPorSemana,
-    );
+  void irASemanaActual() {
+    if (weekOffset == 0) {
+      return;
+    }
+    weekOffset = 0;
+    diaSeleccionado = DateTime.now().weekday - 1;
+    recargarPlan();
+  }
+
+  void cambiarSemana(int delta) {
+    weekOffset += delta;
+    diaSeleccionado = 0;
     recargarPlan();
   }
 
@@ -86,6 +89,7 @@ class OrganizadorController extends ChangeNotifier {
       titulo: datos.titulo,
       detalle: datos.detalle,
       fecha: datos.fecha,
+      fechaFin: datos.fechaFin,
       inicioMinutos: datos.inicioMinutos,
       finMinutos: datos.finMinutos,
       prioridad: datos.prioridad,
@@ -106,6 +110,7 @@ class OrganizadorController extends ChangeNotifier {
         titulo: datos.titulo,
         detalle: datos.detalle,
         fecha: datos.fecha,
+        fechaFin: datos.fechaFin,
         inicioMinutos: datos.inicioMinutos,
         finMinutos: datos.finMinutos,
         prioridad: datos.prioridad,
@@ -142,9 +147,10 @@ class OrganizadorController extends ChangeNotifier {
   }
 
   Future<void> planificarSemana() async {
-    final plan = await _apiService.planificarSemana();
+    final plan = await _apiService.planificarSemana(weekOffset: weekOffset);
     ultimoPlan = plan;
     planFuture = Future.value(plan);
+    weekOffset = plan.weekOffset;
     notifyListeners();
   }
 
@@ -153,9 +159,13 @@ class OrganizadorController extends ChangeNotifier {
     recargarPlan();
   }
 
-  Future<void> replanificarBloque(BloquePlan bloque) async {
-    await _apiService.replanificarBloque(bloque.id);
+  Future<String?> replanificarBloque(BloquePlan bloque) async {
+    final mensaje = await _apiService.replanificarBloque(bloque.id);
     recargarPlan();
+    if (mensaje != 'Bloque replanificado') {
+      return mensaje;
+    }
+    return null;
   }
 
   Future<void> completarObjetivo(Objetivo objetivo) async {
@@ -192,12 +202,10 @@ class OrganizadorController extends ChangeNotifier {
 
   String tipoLabel(String tipo) {
     switch (tipo) {
-      case 'fecha_limite':
-        return 'Fecha limite';
       case 'habito':
-        return 'Habito';
+        return 'Hábito';
       case 'evento_fijo':
-        return 'Evento fijo';
+        return 'Evento';
       default:
         return 'Bloque';
     }
@@ -221,10 +229,10 @@ class OrganizadorController extends ChangeNotifier {
     const nombresDias = [
       'Lunes',
       'Martes',
-      'Miercoles',
+      'Miércoles',
       'Jueves',
       'Viernes',
-      'Sabado',
+      'Sábado',
       'Domingo',
     ];
     final nombreDia = nombresDias[fecha.weekday - 1];
@@ -233,18 +241,50 @@ class OrganizadorController extends ChangeNotifier {
     return '$nombreDia - $dia/$mes';
   }
 
-  Objetivo objetivoDesdeTareaFlexible(TareaFlexible tarea) {
-    return Objetivo(
-      id: tarea.id,
-      titulo: tarea.titulo,
-      detalle: tarea.detalle,
-      tipo: 'fecha_limite',
-      prioridad: tarea.prioridad,
-      duracionMinutos: tarea.duracionMinutos,
-      sesionesPorSemana: tarea.sesionesPorSemana,
-      fechaLimite: tarea.fechaLimite,
-      completado: tarea.completado,
-    );
+  String fechaRangoBonito(String fechaInicioIso, String fechaFinIso) {
+    if (fechaInicioIso == fechaFinIso) {
+      return fechaConDiaBonita(fechaInicioIso);
+    }
+    return '${fechaBonita(fechaInicioIso)} - ${fechaBonita(fechaFinIso)}';
+  }
+
+  String rangoSemanaBonito(PlanSemanal plan) {
+    if (plan.dias.isEmpty) {
+      return '';
+    }
+    final inicio = plan.dias.first.fecha;
+    final fin = plan.dias.last.fecha;
+    return '${fechaBonita(inicio)} - ${fechaBonita(fin)}';
+  }
+
+  String mesSemanaBonito(PlanSemanal plan) {
+    if (plan.dias.isEmpty) {
+      return '';
+    }
+    final inicio = DateTime.tryParse(plan.dias.first.fecha);
+    final fin = DateTime.tryParse(plan.dias.last.fecha);
+    if (inicio == null || fin == null) {
+      return '';
+    }
+    const meses = [
+      'Enero',
+      'Febrero',
+      'Marzo',
+      'Abril',
+      'Mayo',
+      'Junio',
+      'Julio',
+      'Agosto',
+      'Septiembre',
+      'Octubre',
+      'Noviembre',
+      'Diciembre',
+    ];
+    final mesInicio = meses[inicio.month - 1];
+    final mesFin = meses[fin.month - 1];
+    return mesInicio == mesFin
+        ? mesInicio
+        : '$mesInicio - $mesFin';
   }
 
   Objetivo objetivoDesdeHabito(Habito habito) {

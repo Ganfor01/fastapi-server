@@ -3,34 +3,32 @@ import 'disponibilidad.dart';
 import 'evento_fijo.dart';
 import 'habito.dart';
 import 'objetivo.dart';
-import 'tarea_flexible.dart';
 
 class PlanSemanal {
   const PlanSemanal({
     required this.objetivos,
-    required this.tareasFlexibles,
     required this.habitos,
     required this.eventosFijos,
     required this.disponibilidad,
     required this.dias,
+    required this.weekOffset,
+    required this.semanaInicio,
     required this.estadisticas,
   });
 
   final List<Objetivo> objetivos;
-  final List<TareaFlexible> tareasFlexibles;
   final List<Habito> habitos;
   final List<EventoFijo> eventosFijos;
   final List<Disponibilidad> disponibilidad;
   final List<DiaPlan> dias;
+  final int weekOffset;
+  final String semanaInicio;
   final EstadisticasPlan estadisticas;
 
   factory PlanSemanal.fromJson(Map<String, dynamic> json) {
     return PlanSemanal(
       objetivos: (json['objetivos'] as List<dynamic>? ?? [])
           .map((item) => Objetivo.fromJson(item as Map<String, dynamic>))
-          .toList(),
-      tareasFlexibles: (json['tareas_flexibles'] as List<dynamic>? ?? [])
-          .map((item) => TareaFlexible.fromJson(item as Map<String, dynamic>))
           .toList(),
       habitos: (json['habitos'] as List<dynamic>? ?? [])
           .map((item) => Habito.fromJson(item as Map<String, dynamic>))
@@ -44,6 +42,8 @@ class PlanSemanal {
       dias: (json['dias'] as List<dynamic>? ?? [])
           .map((item) => DiaPlan.fromJson(item as Map<String, dynamic>))
           .toList(),
+      weekOffset: json['week_offset'] as int? ?? 0,
+      semanaInicio: json['semana_inicio'] as String? ?? '',
       estadisticas: EstadisticasPlan.fromJson(
         json['estadisticas'] as Map<String, dynamic>? ?? const {},
       ),

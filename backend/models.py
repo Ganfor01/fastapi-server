@@ -30,6 +30,7 @@ class EventoFijoDB(Base):
     titulo = Column(String, index=True, nullable=False)
     detalle = Column(String, nullable=True)
     fecha = Column(String, nullable=False)
+    fecha_fin = Column(String, nullable=True)
     inicio_minutos = Column(Integer, nullable=False)
     fin_minutos = Column(Integer, nullable=False)
     prioridad = Column(Integer, default=3, nullable=False)
@@ -50,6 +51,7 @@ class BloquePlanDB(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     objetivo_id = Column(Integer, ForeignKey("objetivos.id"), nullable=False)
+    semana_inicio = Column(String, nullable=True)
     dia_semana = Column(Integer, nullable=False)
     inicio_minutos = Column(Integer, nullable=False)
     fin_minutos = Column(Integer, nullable=False)

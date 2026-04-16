@@ -7,6 +7,7 @@ class EventoFijoData {
     required this.titulo,
     required this.detalle,
     required this.fecha,
+    required this.fechaFin,
     required this.inicioMinutos,
     required this.finMinutos,
     required this.prioridad,
@@ -15,6 +16,7 @@ class EventoFijoData {
   final String titulo;
   final String detalle;
   final String fecha;
+  final String fechaFin;
   final int inicioMinutos;
   final int finMinutos;
   final int prioridad;
@@ -34,9 +36,11 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
   final _detalleController = TextEditingController();
   String? _error;
   DateTime? _fecha;
+  DateTime? _fechaFin;
   int _inicio = 10 * 60;
   int _fin = 12 * 60;
   int _prioridad = 4;
+  bool _todoElDia = false;
 
   @override
   void initState() {
@@ -46,9 +50,11 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
       _tituloController.text = evento.titulo;
       _detalleController.text = evento.detalle ?? '';
       _fecha = DateTime.tryParse(evento.fecha);
+      _fechaFin = DateTime.tryParse(evento.fechaFin);
       _inicio = evento.inicioMinutos;
       _fin = evento.finMinutos;
       _prioridad = evento.prioridad;
+      _todoElDia = evento.esTodoElDia;
     }
   }
 
@@ -66,11 +72,20 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
   }
 
   List<int> _horasDisponibles() {
-    return List<int>.generate(32, (index) => (6 * 60) + (index * 30));
+    return List<int>.generate(37, (index) => (6 * 60) + (index * 30));
   }
 
   List<int> _horasFinDisponibles() {
     return _horasDisponibles().where((item) => item > _inicio).toList();
+  }
+
+  bool get _esVariosDias {
+    if (_fecha == null || _fechaFin == null) {
+      return false;
+    }
+    final inicio = DateTime(_fecha!.year, _fecha!.month, _fecha!.day);
+    final fin = DateTime(_fechaFin!.year, _fechaFin!.month, _fechaFin!.day);
+    return fin.isAfter(inicio);
   }
 
   void _guardar() {
@@ -79,7 +94,7 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
     final titulo = _tituloController.text.trim();
     if (titulo.length < 3) {
       setState(() {
-        _error = 'El titulo debe tener al menos 3 caracteres';
+        _error = 'El título debe tener al menos 3 caracteres';
       });
       return;
     }
@@ -91,13 +106,31 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
       return;
     }
 
+    final fechaFin = _fechaFin ?? _fecha;
+    if (fechaFin == null) {
+      setState(() {
+        _error = 'Elige una fecha de vuelta para el evento';
+      });
+      return;
+    }
+
+    final inicioDia = DateTime(_fecha!.year, _fecha!.month, _fecha!.day);
+    final finDia = DateTime(fechaFin.year, fechaFin.month, fechaFin.day);
+    if (finDia.isBefore(inicioDia)) {
+      setState(() {
+        _error = 'La fecha de vuelta no puede ser anterior';
+      });
+      return;
+    }
+
     Navigator.of(context).pop(
       EventoFijoData(
         titulo: titulo,
         detalle: _detalleController.text.trim(),
         fecha: _fecha!.toIso8601String().split('T').first,
-        inicioMinutos: _inicio,
-        finMinutos: _fin,
+        fechaFin: fechaFin.toIso8601String().split('T').first,
+        inicioMinutos: _esVariosDias || _todoElDia ? 0 : _inicio,
+        finMinutos: _esVariosDias || _todoElDia ? 1440 : _fin,
         prioridad: _prioridad,
       ),
     );
@@ -114,9 +147,7 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
 
     return AlertDialog(
       title: Text(
-        widget.eventoInicial == null
-            ? 'Nuevo evento fijo'
-            : 'Editar evento fijo',
+        widget.eventoInicial == null ? 'Nuevo evento' : 'Editar evento',
       ),
       content: SingleChildScrollView(
         child: Column(
@@ -127,7 +158,7 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
               autofocus: true,
               textInputAction: TextInputAction.next,
               decoration: InputDecoration(
-                labelText: 'Titulo',
+                labelText: 'Título',
                 hintText: 'Ej: Examen de mates',
                 errorText: _error,
               ),
@@ -144,7 +175,7 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
               controller: _detalleController,
               decoration: const InputDecoration(
                 labelText: 'Detalle',
-                hintText: 'Ej: Aula 2, reunion con el equipo...',
+                hintText: 'Ej: Aula 2, reunión con el equipo...',
               ),
               minLines: 1,
               maxLines: 3,
@@ -162,6 +193,7 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
                 if (elegida != null) {
                   setState(() {
                     _fecha = elegida;
+                    _fechaFin ??= elegida;
                     _error = null;
                   });
                 }
@@ -169,63 +201,126 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
               icon: const Icon(Icons.event_outlined),
               label: Text(
                 _fecha == null
-                    ? 'Elegir fecha'
-                    : 'Fecha: ${_fecha!.day}/${_fecha!.month}/${_fecha!.year}',
+                    ? 'Elegir salida'
+                    : 'Salida: ${_fecha!.day}/${_fecha!.month}/${_fecha!.year}',
               ),
             ),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    key: ValueKey('evento-inicio-$inicioActual'),
-                    initialValue: inicioActual,
-                    decoration: const InputDecoration(labelText: 'Desde'),
-                    items: horasInicio
-                        .map(
-                          (item) => DropdownMenuItem(
-                            value: item,
-                            child: Text(_hora(item)),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          _inicio = value;
-                          if (_fin <= _inicio) {
-                            _fin = _horasFinDisponibles().first;
-                          }
-                        });
-                      }
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    key: ValueKey('evento-fin-$inicioActual-$finActual'),
-                    initialValue: finActual,
-                    decoration: const InputDecoration(labelText: 'Hasta'),
-                    items: horasFin
-                        .map(
-                          (item) => DropdownMenuItem(
-                            value: item,
-                            child: Text(_hora(item)),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          _fin = value;
-                        });
-                      }
-                    },
-                  ),
-                ),
-              ],
+            OutlinedButton.icon(
+              onPressed: () async {
+                final base = _fecha ?? DateTime.now().add(const Duration(days: 1));
+                final elegida = await showDatePicker(
+                  context: context,
+                  firstDate: base,
+                  lastDate: base.add(const Duration(days: 365)),
+                  initialDate: _fechaFin ?? base,
+                );
+                if (elegida != null) {
+                  setState(() {
+                    _fechaFin = elegida;
+                    _error = null;
+                  });
+                }
+              },
+              icon: const Icon(Icons.flight_land_rounded),
+              label: Text(
+                _fechaFin == null
+                    ? 'Elegir vuelta'
+                    : 'Vuelta: ${_fechaFin!.day}/${_fechaFin!.month}/${_fechaFin!.year}',
+              ),
             ),
+            const SizedBox(height: 12),
+            if (!_esVariosDias)
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: _todoElDia,
+              title: const Text('Todo el día'),
+              subtitle: const Text(
+                'Reserva el día entero para bodas, viajes o planes cerrados.',
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _todoElDia = value;
+                });
+              },
+            ),
+            if (_esVariosDias)
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                'Los eventos de varios días reservan todo el rango completo.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: Color(0xFF5F6778),
+                  ),
+                ),
+              )
+            else if (!_todoElDia)
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      key: ValueKey('evento-inicio-$inicioActual'),
+                      initialValue: inicioActual,
+                      decoration: const InputDecoration(labelText: 'Desde'),
+                      items: horasInicio
+                          .map(
+                            (item) => DropdownMenuItem(
+                              value: item,
+                              child: Text(_hora(item)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _inicio = value;
+                            if (_fin <= _inicio) {
+                              _fin = _horasFinDisponibles().first;
+                            }
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      key: ValueKey('evento-fin-$inicioActual-$finActual'),
+                      initialValue: finActual,
+                      decoration: const InputDecoration(labelText: 'Hasta'),
+                      items: horasFin
+                          .map(
+                            (item) => DropdownMenuItem(
+                              value: item,
+                              child: Text(_hora(item)),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            _fin = value;
+                          });
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              )
+            else
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Ese día quedará bloqueado completo y no se pondrán hábitos ahí.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.35,
+                    color: Color(0xFF5F6778),
+                  ),
+                ),
+              ),
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
               initialValue: _prioridad,

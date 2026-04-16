@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../controllers/organizador_controller.dart';
+import '../models/bloque_plan.dart';
 import '../models/evento_fijo.dart';
 import '../models/objetivo.dart';
 import '../models/plan_semanal.dart';
@@ -10,13 +11,19 @@ import '../widgets/dialogs/confirm_dialog.dart';
 import '../widgets/dialogs/disponibilidad_dialog.dart';
 import '../widgets/dialogs/evento_fijo_dialog.dart';
 import '../widgets/dialogs/habito_dialog.dart';
-import '../widgets/dialogs/tarea_flexible_dialog.dart';
 import '../widgets/error_state.dart';
 import 'inicio_screen.dart';
 import 'mi_semana_screen.dart';
 
 class OrganizadorPage extends StatefulWidget {
-  const OrganizadorPage({super.key});
+  const OrganizadorPage({
+    super.key,
+    required this.themeMode,
+    required this.onThemeModeSelected,
+  });
+
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeSelected;
 
   @override
   State<OrganizadorPage> createState() => _OrganizadorPageState();
@@ -41,25 +48,6 @@ class _OrganizadorPageState extends State<OrganizadorPage> {
     super.dispose();
   }
 
-  Future<void> _crearTareaFlexible() async {
-    final datos = await showDialog<TareaFlexibleData>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const TareaFlexibleDialog(),
-    );
-
-    if (datos == null) {
-      return;
-    }
-
-    try {
-      await _controller.crearTareaFlexible(datos);
-      _mostrarExito('Tarea flexible creada');
-    } catch (error) {
-      _mostrarError(error.toString());
-    }
-  }
-
   Future<void> _crearHabito() async {
     final datos = await showDialog<HabitoData>(
       context: context,
@@ -73,7 +61,7 @@ class _OrganizadorPageState extends State<OrganizadorPage> {
 
     try {
       await _controller.crearHabito(datos);
-      _mostrarExito('Habito creado');
+      _mostrarExito('Hábito creado');
     } catch (error) {
       _mostrarError(error.toString());
     }
@@ -92,7 +80,7 @@ class _OrganizadorPageState extends State<OrganizadorPage> {
 
     try {
       await _controller.crearEventoFijo(datos);
-      _mostrarExito('Evento fijo creado');
+      _mostrarExito('Evento creado');
     } catch (error) {
       _mostrarError(error.toString());
     }
@@ -115,7 +103,7 @@ class _OrganizadorPageState extends State<OrganizadorPage> {
 
     try {
       await _controller.actualizarEventoFijo(evento: evento, datos: datos);
-      _mostrarExito('Evento fijo actualizado');
+      _mostrarExito('Evento actualizado');
     } catch (error) {
       _mostrarError(error.toString());
     }
@@ -124,9 +112,9 @@ class _OrganizadorPageState extends State<OrganizadorPage> {
   Future<void> _eliminarEventoFijo(EventoFijo evento) async {
     final confirmar = await ConfirmDialog.show(
       context,
-      title: 'Eliminar evento fijo',
+      title: 'Eliminar evento',
       message:
-          'Se borrara "${evento.titulo}" y dejara libre ese hueco en la agenda.',
+          'Se borrará "${evento.titulo}" y dejará libre ese hueco en la agenda.',
     );
 
     if (!confirmar) {
@@ -136,7 +124,7 @@ class _OrganizadorPageState extends State<OrganizadorPage> {
     HapticFeedback.mediumImpact();
     try {
       await _controller.eliminarEventoFijo(evento);
-      _mostrarExito('Evento fijo eliminado');
+      _mostrarExito('Evento eliminado');
     } catch (error) {
       _mostrarError(error.toString());
     }
@@ -168,6 +156,17 @@ class _OrganizadorPageState extends State<OrganizadorPage> {
     }
   }
 
+  Future<void> _replanificarBloque(BloquePlan bloque) async {
+    try {
+      final mensaje = await _controller.replanificarBloque(bloque);
+      if (mensaje != null) {
+        _mostrarError(mensaje);
+      }
+    } catch (error) {
+      _mostrarError(error.toString());
+    }
+  }
+
   Future<void> _completarObjetivo(Objetivo objetivo) async {
     HapticFeedback.selectionClick();
     try {
@@ -184,7 +183,7 @@ class _OrganizadorPageState extends State<OrganizadorPage> {
       context,
       title: 'Eliminar objetivo',
       message:
-          'Se borrara "${objetivo.titulo}" de forma definitiva. Esta accion no se puede deshacer.',
+          'Se borrará "${objetivo.titulo}" de forma definitiva. Esta acción no se puede deshacer.',
     );
 
     if (!confirmar) {
@@ -221,53 +220,60 @@ class _OrganizadorPageState extends State<OrganizadorPage> {
       animation: _controller,
       builder: (context, _) {
         return Scaffold(
-          body: FutureBuilder<PlanSemanal>(
-            future: _controller.planFuture,
-            builder: (context, snapshot) {
-              if (snapshot.hasData) {
-                _controller.cachearPlan(snapshot.data!);
-              }
+          body: SafeArea(
+            bottom: false,
+            child: FutureBuilder<PlanSemanal>(
+              future: _controller.planFuture,
+              builder: (context, snapshot) {
+                if (snapshot.hasData) {
+                  _controller.cachearPlan(snapshot.data!);
+                }
 
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  snapshot.data == null &&
-                  _controller.ultimoPlan == null) {
-                return const Center(child: CircularProgressIndicator());
-              }
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    snapshot.data == null &&
+                    _controller.ultimoPlan == null) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-              if (snapshot.hasError && _controller.ultimoPlan == null) {
-                return ErrorState(onRetry: _controller.recargarPlan);
-              }
+                if (snapshot.hasError && _controller.ultimoPlan == null) {
+                  return ErrorState(onRetry: _controller.recargarPlan);
+                }
 
-              final plan = snapshot.data ?? _controller.ultimoPlan!;
-              _controller.asegurarDiaSeleccionadoValido(plan);
+                final plan = snapshot.data ?? _controller.ultimoPlan!;
+                _controller.asegurarDiaSeleccionadoValido(plan);
 
-              return _controller.pantallaSeleccionada == 0
-                  ? RefreshIndicator(
-                      onRefresh: () async => _controller.recargarPlan(),
-                      child: InicioScreen(
-                        plan: plan,
-                        controller: _controller,
-                        scrollController: _scrollController,
-                        onAddTask: _crearTareaFlexible,
-                        onAddHabit: _crearHabito,
-                        onAddEvent: _crearEventoFijo,
-                        onAvailability: _configurarDisponibilidad,
-                        onPlan: _planificarSemana,
-                        onCompleteObjetivo: _completarObjetivo,
-                        onDeleteObjetivo: _eliminarObjetivo,
-                        onEditEvento: _editarEventoFijo,
-                        onDeleteEvento: _eliminarEventoFijo,
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: () async => _controller.recargarPlan(),
-                      child: MiSemanaScreen(
-                        plan: plan,
-                        controller: _controller,
-                        scrollController: _agendaScrollController,
-                      ),
-                    );
-            },
+                return _controller.pantallaSeleccionada == 0
+                    ? RefreshIndicator(
+                        onRefresh: () async => _controller.recargarPlan(),
+                        child: InicioScreen(
+                          plan: plan,
+                          controller: _controller,
+                          themeMode: widget.themeMode,
+                          onThemeModeSelected: widget.onThemeModeSelected,
+                          scrollController: _scrollController,
+                          onAddHabit: _crearHabito,
+                          onAddEvent: _crearEventoFijo,
+                          onAvailability: _configurarDisponibilidad,
+                          onPlan: _planificarSemana,
+                          onCompleteObjetivo: _completarObjetivo,
+                          onDeleteObjetivo: _eliminarObjetivo,
+                          onEditEvento: _editarEventoFijo,
+                          onDeleteEvento: _eliminarEventoFijo,
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: () async => _controller.recargarPlan(),
+                        child: MiSemanaScreen(
+                          plan: plan,
+                          controller: _controller,
+                          themeMode: widget.themeMode,
+                          onThemeModeSelected: widget.onThemeModeSelected,
+                          onRescheduleBloque: _replanificarBloque,
+                          scrollController: _agendaScrollController,
+                        ),
+                      );
+              },
+            ),
           ),
           bottomNavigationBar: NavigationBar(
             selectedIndex: _controller.pantallaSeleccionada,

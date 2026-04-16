@@ -23,77 +23,24 @@ class ApiService {
         : 'http://127.0.0.1:8000';
   }
 
-  Uri _uri(String path) => Uri.parse('$baseUrl$path');
+  Uri _uri(String path, [Map<String, String>? queryParameters]) {
+    final base = Uri.parse('$baseUrl$path');
+    if (queryParameters == null || queryParameters.isEmpty) {
+      return base;
+    }
+    return base.replace(queryParameters: queryParameters);
+  }
 
-  Future<PlanSemanal> obtenerPlanSemanal() async {
-    final response = await _client.get(_uri('/plan-semanal'));
+  Future<PlanSemanal> obtenerPlanSemanal({int weekOffset = 0}) async {
+    final response = await _client.get(
+      _uri('/plan-semanal', {'week_offset': '$weekOffset'}),
+    );
     if (response.statusCode != 200) {
       throw Exception('No se pudo cargar el plan semanal');
     }
     return PlanSemanal.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
-  }
-
-  Future<void> crearObjetivo({
-    required String titulo,
-    required String tipo,
-    String? detalle,
-    String? fechaLimite,
-    required int prioridad,
-    required int duracionMinutos,
-    required int sesionesPorSemana,
-  }) async {
-    final response = await _client.post(
-      _uri('/objetivos'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'titulo': titulo,
-        'detalle': detalle?.trim().isEmpty ?? true ? null : detalle!.trim(),
-        'tipo': tipo,
-        'prioridad': prioridad,
-        'duracion_minutos': duracionMinutos,
-        'sesiones_por_semana': sesionesPorSemana,
-        'fecha_limite': fechaLimite,
-      }),
-    );
-
-    if (response.statusCode != 200) {
-      throw Exception(
-        _extraerMensajeError(response.body, 'No se pudo crear el objetivo'),
-      );
-    }
-  }
-
-  Future<void> crearTareaFlexible({
-    required String titulo,
-    String? detalle,
-    required String fechaLimite,
-    required int prioridad,
-    required int duracionMinutos,
-    required int sesionesPorSemana,
-  }) async {
-    final response = await _client.post(
-      _uri('/tareas-flexibles'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'titulo': titulo,
-        'detalle': detalle?.trim().isEmpty ?? true ? null : detalle!.trim(),
-        'fecha_limite': fechaLimite,
-        'prioridad': prioridad,
-        'duracion_minutos': duracionMinutos,
-        'sesiones_por_semana': sesionesPorSemana,
-      }),
-    );
-
-    if (response.statusCode != 200) {
-      throw Exception(
-        _extraerMensajeError(
-          response.body,
-          'No se pudo crear la tarea flexible',
-        ),
-      );
-    }
   }
 
   Future<void> crearHabito({
@@ -126,6 +73,7 @@ class ApiService {
     required String titulo,
     String? detalle,
     required String fecha,
+    required String fechaFin,
     required int inicioMinutos,
     required int finMinutos,
     required int prioridad,
@@ -137,6 +85,7 @@ class ApiService {
         'titulo': titulo,
         'detalle': detalle?.trim().isEmpty ?? true ? null : detalle!.trim(),
         'fecha': fecha,
+        'fecha_fin': fechaFin,
         'inicio_minutos': inicioMinutos,
         'fin_minutos': finMinutos,
         'prioridad': prioridad,
@@ -145,7 +94,7 @@ class ApiService {
 
     if (response.statusCode != 200) {
       throw Exception(
-        _extraerMensajeError(response.body, 'No se pudo crear el evento fijo'),
+        _extraerMensajeError(response.body, 'No se pudo crear el evento'),
       );
     }
   }
@@ -155,6 +104,7 @@ class ApiService {
     required String titulo,
     String? detalle,
     required String fecha,
+    required String fechaFin,
     required int inicioMinutos,
     required int finMinutos,
     required int prioridad,
@@ -166,6 +116,7 @@ class ApiService {
         'titulo': titulo,
         'detalle': detalle?.trim().isEmpty ?? true ? null : detalle!.trim(),
         'fecha': fecha,
+        'fecha_fin': fechaFin,
         'inicio_minutos': inicioMinutos,
         'fin_minutos': finMinutos,
         'prioridad': prioridad,
@@ -176,7 +127,7 @@ class ApiService {
       throw Exception(
         _extraerMensajeError(
           response.body,
-          'No se pudo actualizar el evento fijo',
+          'No se pudo actualizar el evento',
         ),
       );
     }
@@ -188,7 +139,7 @@ class ApiService {
       throw Exception(
         _extraerMensajeError(
           response.body,
-          'No se pudo eliminar el evento fijo',
+          'No se pudo eliminar el evento',
         ),
       );
     }
@@ -225,8 +176,10 @@ class ApiService {
     }
   }
 
-  Future<PlanSemanal> planificarSemana() async {
-    final response = await _client.post(_uri('/planificar-semana'));
+  Future<PlanSemanal> planificarSemana({int weekOffset = 0}) async {
+    final response = await _client.post(
+      _uri('/planificar-semana', {'week_offset': '$weekOffset'}),
+    );
     if (response.statusCode != 200) {
       throw Exception(
         _extraerMensajeError(response.body, 'No se pudo planificar la semana'),
@@ -244,7 +197,7 @@ class ApiService {
     }
   }
 
-  Future<void> replanificarBloque(int id) async {
+  Future<String> replanificarBloque(int id) async {
     final response = await _client.patch(_uri('/bloques/$id/fallado'));
     if (response.statusCode != 200) {
       throw Exception(
@@ -254,6 +207,18 @@ class ApiService {
         ),
       );
     }
+
+    try {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final mensaje = data['mensaje'];
+      if (mensaje is String && mensaje.isNotEmpty) {
+        return mensaje;
+      }
+    } catch (_) {
+      return 'Bloque replanificado';
+    }
+
+    return 'Bloque replanificado';
   }
 
   Future<void> completarObjetivo(int id) async {

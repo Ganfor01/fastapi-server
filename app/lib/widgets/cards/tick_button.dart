@@ -18,49 +18,54 @@ class TickButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = compact ? 32.0 : 38.0;
     final iconSize = compact ? 16.0 : 18.0;
+    final circleBorder = CircleBorder(
+      side: const BorderSide(color: Color(0xFFD9DFEA)),
+    );
 
     return Tooltip(
       message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: isBusy ? null : onPressed,
-          borderRadius: BorderRadius.circular(size / 2),
-          child: Ink(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFD9DFEA)),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x120F172A),
-                  blurRadius: 12,
-                  offset: Offset(0, 6),
-                ),
-              ],
+      child: Container(
+        width: size,
+        height: size,
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Color(0x120F172A),
+              blurRadius: 12,
+              offset: Offset(0, 6),
             ),
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 180),
-              child: isBusy
-                  ? SizedBox(
-                      key: const ValueKey('tick-loading'),
-                      width: iconSize,
-                      height: iconSize,
-                      child: const CircularProgressIndicator(
-                        strokeWidth: 2.4,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Color(0xFF8A92A3),
+          ],
+        ),
+        child: Material(
+          color: Colors.white,
+          shape: circleBorder,
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: isBusy ? null : onPressed,
+            customBorder: circleBorder,
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: isBusy
+                    ? SizedBox(
+                        key: const ValueKey('tick-loading'),
+                        width: iconSize,
+                        height: iconSize,
+                        child: const CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Color(0xFF8A92A3),
+                          ),
                         ),
+                      )
+                    : Icon(
+                        key: const ValueKey('tick-idle'),
+                        Icons.check_rounded,
+                        size: iconSize,
+                        color: const Color(0xFF8A92A3),
                       ),
-                    )
-                  : Icon(
-                      key: const ValueKey('tick-idle'),
-                      Icons.check_rounded,
-                      size: iconSize,
-                      color: const Color(0xFF8A92A3),
-                    ),
+              ),
             ),
           ),
         ),

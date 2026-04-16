@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/app_theme.dart';
+
 class SectionTitle extends StatelessWidget {
   const SectionTitle({super.key, required this.title, required this.subtitle});
 
@@ -8,19 +10,22 @@ class SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final palette = context.palette;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 22,
             fontWeight: FontWeight.w800,
-            color: Color(0xFF171B24),
+            color: palette.titleColor,
+            letterSpacing: -0.4,
           ),
         ),
         const SizedBox(height: 4),
-        Text(subtitle, style: const TextStyle(color: Color(0xFF687083))),
+        Text(subtitle, style: TextStyle(color: palette.subtitleColor)),
       ],
     );
   }

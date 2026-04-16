@@ -42,7 +42,7 @@ class _HabitoDialogState extends State<HabitoDialog> {
     final titulo = _tituloController.text.trim();
     if (titulo.length < 3) {
       setState(() {
-        _error = 'El titulo debe tener al menos 3 caracteres';
+        _error = 'El título debe tener al menos 3 caracteres';
       });
       return;
     }
@@ -61,7 +61,7 @@ class _HabitoDialogState extends State<HabitoDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Nuevo habito'),
+      title: const Text('Nuevo hábito'),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -70,7 +70,7 @@ class _HabitoDialogState extends State<HabitoDialog> {
               controller: _tituloController,
               autofocus: true,
               decoration: InputDecoration(
-                labelText: 'Titulo',
+                labelText: 'Título',
                 hintText: 'Ej: Entrenar',
                 errorText: _error,
               ),
@@ -120,7 +120,7 @@ class _HabitoDialogState extends State<HabitoDialog> {
                 Expanded(
                   child: DropdownButtonFormField<int>(
                     initialValue: _duracion,
-                    decoration: const InputDecoration(labelText: 'Duracion'),
+                    decoration: const InputDecoration(labelText: 'Duración'),
                     items: const [30, 45, 60, 90, 120]
                         .map(
                           (item) => DropdownMenuItem(
@@ -143,7 +143,7 @@ class _HabitoDialogState extends State<HabitoDialog> {
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(
               initialValue: _sesiones,
-              decoration: const InputDecoration(labelText: 'Dias por semana'),
+              decoration: const InputDecoration(labelText: 'Días por semana'),
               items: const [1, 2, 3, 4, 5, 6, 7]
                   .map(
                     (item) =>

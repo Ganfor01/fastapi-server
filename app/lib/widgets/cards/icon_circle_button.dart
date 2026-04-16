@@ -18,20 +18,20 @@ class IconCircleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final circleBorder = const CircleBorder();
+
     return Tooltip(
       message: tooltip,
       child: Material(
-        color: Colors.transparent,
+        color: backgroundColor,
+        shape: circleBorder,
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(20),
-          child: Ink(
+          customBorder: circleBorder,
+          child: SizedBox(
             width: 40,
             height: 40,
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              shape: BoxShape.circle,
-            ),
             child: Icon(icon, size: 20, color: foregroundColor),
           ),
         ),
