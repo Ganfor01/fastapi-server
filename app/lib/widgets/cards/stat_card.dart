@@ -8,11 +8,13 @@ class StatCard extends StatelessWidget {
     required this.title,
     required this.value,
     this.caption,
+    this.captionMaxLines = 2,
   });
 
   final String title;
   final String value;
   final String? caption;
+  final int? captionMaxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -53,8 +55,10 @@ class StatCard extends StatelessWidget {
                         padding: const EdgeInsets.only(top: 16),
                         child: Text(
                           caption!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
+                          maxLines: captionMaxLines,
+                          overflow: captionMaxLines == null
+                              ? TextOverflow.visible
+                              : TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 13,
                             height: 1.35,

@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 
 import '../models/bloque_plan.dart';
 import '../models/evento_fijo.dart';
@@ -18,8 +18,13 @@ class OrganizadorController extends ChangeNotifier {
 
   final Set<int> objetivosActualizando = <int>{};
   final Set<int> objetivosEliminando = <int>{};
+  final Set<int> habitosRegistrando = <int>{};
+  final Set<int> eventosCompletando = <int>{};
   final Set<int> eventosActualizando = <int>{};
   final Set<int> eventosEliminando = <int>{};
+  final Set<String> notasGuardando = <String>{};
+  final Map<int, int> _sesionesHabitoOptimistas = <int, int>{};
+  final Map<int, bool> _eventosCompletadosOptimistas = <int, bool>{};
 
   PlanSemanal? ultimoPlan;
   late Future<PlanSemanal> planFuture;
@@ -40,6 +45,24 @@ class OrganizadorController extends ChangeNotifier {
   void cachearPlan(PlanSemanal plan) {
     ultimoPlan = plan;
     weekOffset = plan.weekOffset;
+    for (final habito in plan.habitos) {
+      final optimista = _sesionesHabitoOptimistas[habito.id];
+      if (optimista == null) {
+        continue;
+      }
+      if (habito.sesionesCompletadasSemana >= optimista) {
+        _sesionesHabitoOptimistas.remove(habito.id);
+      }
+    }
+    for (final evento in plan.eventosFijos) {
+      final optimista = _eventosCompletadosOptimistas[evento.id];
+      if (optimista == null) {
+        continue;
+      }
+      if (evento.completado == optimista) {
+        _eventosCompletadosOptimistas.remove(evento.id);
+      }
+    }
   }
 
   void asegurarDiaSeleccionadoValido(PlanSemanal plan) {
@@ -73,6 +96,23 @@ class OrganizadorController extends ChangeNotifier {
     recargarPlan();
   }
 
+  void irAFecha(DateTime fecha) {
+    final hoy = DateTime.now();
+    final hoyNormalizado = DateTime(hoy.year, hoy.month, hoy.day);
+    final destino = DateTime(fecha.year, fecha.month, fecha.day);
+    final inicioSemanaActual = hoyNormalizado.subtract(
+      Duration(days: hoyNormalizado.weekday - 1),
+    );
+    final inicioSemanaDestino = destino.subtract(
+      Duration(days: destino.weekday - 1),
+    );
+
+    weekOffset =
+        inicioSemanaDestino.difference(inicioSemanaActual).inDays ~/ 7;
+    diaSeleccionado = destino.weekday - 1;
+    recargarPlan();
+  }
+
   Future<void> crearHabito(HabitoData datos) async {
     await _apiService.crearHabito(
       titulo: datos.titulo,
@@ -84,6 +124,38 @@ class OrganizadorController extends ChangeNotifier {
     recargarPlan();
   }
 
+  Future<String?> registrarSesionHabito(Habito habito) async {
+    if (habitosRegistrando.contains(habito.id)) {
+      return null;
+    }
+
+    final sesionesPrevias = sesionesCompletadasHabito(habito);
+    habitosRegistrando.add(habito.id);
+    _sesionesHabitoOptimistas[habito.id] = (
+      sesionesPrevias + 1
+    ).clamp(0, habito.sesionesPorSemana);
+    notifyListeners();
+
+    try {
+      final mensaje = await _apiService.registrarSesionHabito(
+        id: habito.id,
+        weekOffset: weekOffset,
+      );
+      recargarPlan();
+      return mensaje;
+    } catch (_) {
+      _sesionesHabitoOptimistas[habito.id] = sesionesPrevias;
+      rethrow;
+    } finally {
+      habitosRegistrando.remove(habito.id);
+      notifyListeners();
+    }
+  }
+
+  int sesionesCompletadasHabito(Habito habito) {
+    return _sesionesHabitoOptimistas[habito.id] ?? habito.sesionesCompletadasSemana;
+  }
+
   Future<void> crearEventoFijo(EventoFijoData datos) async {
     await _apiService.crearEventoFijo(
       titulo: datos.titulo,
@@ -93,6 +165,7 @@ class OrganizadorController extends ChangeNotifier {
       inicioMinutos: datos.inicioMinutos,
       finMinutos: datos.finMinutos,
       prioridad: datos.prioridad,
+      notasPorDia: datos.notasPorDia,
     );
     recargarPlan();
   }
@@ -114,6 +187,7 @@ class OrganizadorController extends ChangeNotifier {
         inicioMinutos: datos.inicioMinutos,
         finMinutos: datos.finMinutos,
         prioridad: datos.prioridad,
+        notasPorDia: datos.notasPorDia,
       );
       recargarPlan();
     } finally {
@@ -137,6 +211,32 @@ class OrganizadorController extends ChangeNotifier {
     }
   }
 
+  Future<void> completarEventoFijo(EventoFijo evento) async {
+    if (eventosCompletando.contains(evento.id)) {
+      return;
+    }
+
+    final estadoPrevio = completadoEvento(evento);
+    eventosCompletando.add(evento.id);
+    _eventosCompletadosOptimistas[evento.id] = !estadoPrevio;
+    notifyListeners();
+
+    try {
+      await _apiService.completarEventoFijo(evento.id);
+      recargarPlan();
+    } catch (_) {
+      _eventosCompletadosOptimistas[evento.id] = estadoPrevio;
+      rethrow;
+    } finally {
+      eventosCompletando.remove(evento.id);
+      notifyListeners();
+    }
+  }
+
+  bool completadoEvento(EventoFijo evento) {
+    return _eventosCompletadosOptimistas[evento.id] ?? evento.completado;
+  }
+
   Future<void> guardarDisponibilidad(DisponibilidadData datos) async {
     await _apiService.guardarDisponibilidad(
       diasSeleccionados: datos.diasSeleccionados,
@@ -144,6 +244,30 @@ class OrganizadorController extends ChangeNotifier {
       finMinutos: datos.finMinutos,
     );
     recargarPlan();
+  }
+
+  Future<String?> guardarNotaDia({
+    required String fecha,
+    required String nota,
+  }) async {
+    if (notasGuardando.contains(fecha)) {
+      return null;
+    }
+
+    notasGuardando.add(fecha);
+    notifyListeners();
+
+    try {
+      final mensaje = await _apiService.guardarNotaDia(
+        fecha: fecha,
+        nota: nota,
+      );
+      recargarPlan();
+      return mensaje;
+    } finally {
+      notasGuardando.remove(fecha);
+      notifyListeners();
+    }
   }
 
   Future<void> planificarSemana() async {
@@ -301,3 +425,4 @@ class OrganizadorController extends ChangeNotifier {
     );
   }
 }
+

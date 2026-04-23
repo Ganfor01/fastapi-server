@@ -8,6 +8,8 @@ class EmptyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasSubtitle = subtitle.trim().isNotEmpty;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -18,8 +20,13 @@ class EmptyCard extends StatelessWidget {
               title,
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
-            const SizedBox(height: 8),
-            Text(subtitle, style: const TextStyle(color: Color(0xFF687083))),
+            if (hasSubtitle) ...[
+              const SizedBox(height: 8),
+              Text(
+                subtitle,
+                style: const TextStyle(color: Color(0xFF687083)),
+              ),
+            ],
           ],
         ),
       ),

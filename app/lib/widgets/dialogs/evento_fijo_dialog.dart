@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../../models/evento_fijo.dart';
 
@@ -11,6 +11,7 @@ class EventoFijoData {
     required this.inicioMinutos,
     required this.finMinutos,
     required this.prioridad,
+    required this.notasPorDia,
   });
 
   final String titulo;
@@ -20,6 +21,7 @@ class EventoFijoData {
   final int inicioMinutos;
   final int finMinutos;
   final int prioridad;
+  final Map<String, String> notasPorDia;
 }
 
 class EventoFijoDialog extends StatefulWidget {
@@ -34,6 +36,7 @@ class EventoFijoDialog extends StatefulWidget {
 class _EventoFijoDialogState extends State<EventoFijoDialog> {
   final _tituloController = TextEditingController();
   final _detalleController = TextEditingController();
+  final Map<String, TextEditingController> _notasControllers = {};
   String? _error;
   DateTime? _fecha;
   DateTime? _fechaFin;
@@ -55,13 +58,20 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
       _fin = evento.finMinutos;
       _prioridad = evento.prioridad;
       _todoElDia = evento.esTodoElDia;
+      for (final entry in evento.notasPorDia.entries) {
+        _notasControllers[entry.key] = TextEditingController(text: entry.value);
+      }
     }
+    _sincronizarNotasControllers();
   }
 
   @override
   void dispose() {
     _tituloController.dispose();
     _detalleController.dispose();
+    for (final controller in _notasControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -88,6 +98,59 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
     return fin.isAfter(inicio);
   }
 
+  List<DateTime> get _diasDelEvento {
+    if (_fecha == null) {
+      return const <DateTime>[];
+    }
+    final inicio = DateTime(_fecha!.year, _fecha!.month, _fecha!.day);
+    final finBase = _fechaFin ?? _fecha!;
+    final fin = DateTime(finBase.year, finBase.month, finBase.day);
+    if (fin.isBefore(inicio)) {
+      return <DateTime>[inicio];
+    }
+    final totalDias = fin.difference(inicio).inDays + 1;
+    return List<DateTime>.generate(
+      totalDias,
+      (index) => inicio.add(Duration(days: index)),
+    );
+  }
+
+  String _isoDate(DateTime fecha) => fecha.toIso8601String().split('T').first;
+
+  String _fechaCorta(DateTime fecha) {
+    final dia = fecha.day.toString().padLeft(2, '0');
+    final mes = fecha.month.toString().padLeft(2, '0');
+    return '$dia/$mes';
+  }
+
+  String _nombreDia(DateTime fecha) {
+    const nombres = [
+      'Lunes',
+      'Martes',
+      'Miércoles',
+      'Jueves',
+      'Viernes',
+      'Sábado',
+      'Domingo',
+    ];
+    return nombres[fecha.weekday - 1];
+  }
+
+  void _sincronizarNotasControllers() {
+    final fechasActivas = _diasDelEvento.map(_isoDate).toSet();
+    final actuales = _notasControllers.keys.toList();
+
+    for (final fecha in actuales) {
+      if (!fechasActivas.contains(fecha)) {
+        _notasControllers.remove(fecha)?.dispose();
+      }
+    }
+
+    for (final fecha in fechasActivas) {
+      _notasControllers.putIfAbsent(fecha, () => TextEditingController());
+    }
+  }
+
   void _guardar() {
     FocusScope.of(context).unfocus();
 
@@ -109,7 +172,7 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
     final fechaFin = _fechaFin ?? _fecha;
     if (fechaFin == null) {
       setState(() {
-        _error = 'Elige una fecha de vuelta para el evento';
+        _error = 'Elige una fecha de fin para el evento';
       });
       return;
     }
@@ -118,7 +181,7 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
     final finDia = DateTime(fechaFin.year, fechaFin.month, fechaFin.day);
     if (finDia.isBefore(inicioDia)) {
       setState(() {
-        _error = 'La fecha de vuelta no puede ser anterior';
+        _error = 'La fecha de fin no puede ser anterior';
       });
       return;
     }
@@ -132,6 +195,10 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
         inicioMinutos: _esVariosDias || _todoElDia ? 0 : _inicio,
         finMinutos: _esVariosDias || _todoElDia ? 1440 : _fin,
         prioridad: _prioridad,
+        notasPorDia: {
+          for (final entry in _notasControllers.entries)
+            if (entry.value.text.trim().isNotEmpty) entry.key: entry.value.text.trim(),
+        },
       ),
     );
   }
@@ -194,6 +261,10 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
                   setState(() {
                     _fecha = elegida;
                     _fechaFin ??= elegida;
+                    if (_fechaFin!.isBefore(_fecha!)) {
+                      _fechaFin = _fecha;
+                    }
+                    _sincronizarNotasControllers();
                     _error = null;
                   });
                 }
@@ -201,8 +272,8 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
               icon: const Icon(Icons.event_outlined),
               label: Text(
                 _fecha == null
-                    ? 'Elegir salida'
-                    : 'Salida: ${_fecha!.day}/${_fecha!.month}/${_fecha!.year}',
+                    ? 'Comienzo'
+                    : 'Comienzo: ${_fecha!.day}/${_fecha!.month}/${_fecha!.year}',
               ),
             ),
             const SizedBox(height: 12),
@@ -218,6 +289,7 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
                 if (elegida != null) {
                   setState(() {
                     _fechaFin = elegida;
+                    _sincronizarNotasControllers();
                     _error = null;
                   });
                 }
@@ -225,8 +297,8 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
               icon: const Icon(Icons.flight_land_rounded),
               label: Text(
                 _fechaFin == null
-                    ? 'Elegir vuelta'
-                    : 'Vuelta: ${_fechaFin!.day}/${_fechaFin!.month}/${_fechaFin!.year}',
+                    ? 'Fin'
+                    : 'Fin: ${_fechaFin!.day}/${_fechaFin!.month}/${_fechaFin!.year}',
               ),
             ),
             const SizedBox(height: 12),
@@ -322,6 +394,57 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
                 ),
               ),
             const SizedBox(height: 12),
+            if (_esVariosDias) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF161B24)
+                      : const Color(0xFFF6F8FC),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Notas por día',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Puedes dejarte un recordatorio distinto para cada día del evento.',
+                      style: TextStyle(height: 1.35),
+                    ),
+                    const SizedBox(height: 12),
+                    ..._diasDelEvento.map((dia) {
+                      final fechaIso = _isoDate(dia);
+                      final controller = _notasControllers.putIfAbsent(
+                        fechaIso,
+                        () => TextEditingController(),
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: TextField(
+                          controller: controller,
+                          decoration: InputDecoration(
+                            labelText: '${_nombreDia(dia)} ${_fechaCorta(dia)}',
+                            hintText: 'Ej: reunión con dirección, demo, llamada...',
+                          ),
+                          maxLength: 160,
+                          minLines: 1,
+                          maxLines: 2,
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             DropdownButtonFormField<int>(
               initialValue: _prioridad,
               decoration: const InputDecoration(labelText: 'Prioridad'),
@@ -352,3 +475,5 @@ class _EventoFijoDialogState extends State<EventoFijoDialog> {
     );
   }
 }
+
+

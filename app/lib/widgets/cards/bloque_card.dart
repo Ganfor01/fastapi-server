@@ -150,6 +150,49 @@ class BloqueCard extends StatelessWidget {
                   style: TextStyle(color: bodyColor),
                 ),
               ],
+              if ((bloque.notaDia ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0x221F8A4C)
+                        : const Color(0xFFEAF7EF),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isDark
+                          ? const Color(0xFF275E3C)
+                          : const Color(0xFFC8E7D3),
+                    ),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.sticky_note_2_outlined,
+                        size: 18,
+                        color: isDark
+                            ? const Color(0xFF8FD4A7)
+                            : const Color(0xFF2A7C4B),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          bloque.notaDia!,
+                          style: TextStyle(
+                            color: isDark
+                                ? const Color(0xFFE1F2E6)
+                                : const Color(0xFF245B39),
+                            height: 1.35,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               if (esEventoTodoElDia) ...[
                 const SizedBox(height: 12),
                 Text(
@@ -178,6 +221,8 @@ class BloqueCard extends StatelessWidget {
                     ),
                   if (esEventoTodoElDia)
                     const MiniPill(label: 'Sin huecos disponibles'),
+                  if ((bloque.notaDia ?? '').trim().isNotEmpty)
+                    const MiniPill(label: 'Nota del día'),
                   if (bloque.replanificado)
                     const MiniPill(label: 'Replanificado'),
                 ],

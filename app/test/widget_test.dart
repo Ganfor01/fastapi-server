@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:app_tareas/main.dart';
+import 'package:weekai/main.dart';
 
 void main() {
   testWidgets('la app renderiza la pantalla principal', (WidgetTester tester) async {

@@ -6,6 +6,7 @@ class BloquePlan {
     required this.tituloObjetivo,
     required this.tipoObjetivo,
     required this.detalleObjetivo,
+    required this.notaDia,
     required this.diaSemana,
     required this.nombreDia,
     required this.fecha,
@@ -24,6 +25,7 @@ class BloquePlan {
   final String tituloObjetivo;
   final String tipoObjetivo;
   final String? detalleObjetivo;
+  final String? notaDia;
   final int diaSemana;
   final String nombreDia;
   final String fecha;
@@ -43,6 +45,7 @@ class BloquePlan {
       tituloObjetivo: json['titulo_objetivo'] as String,
       tipoObjetivo: json['tipo_objetivo'] as String? ?? '',
       detalleObjetivo: json['detalle_objetivo'] as String?,
+      notaDia: json['nota_dia'] as String?,
       diaSemana: json['dia_semana'] as int,
       nombreDia: json['nombre_dia'] as String,
       fecha: json['fecha'] as String,

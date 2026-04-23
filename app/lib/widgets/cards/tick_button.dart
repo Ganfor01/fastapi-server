@@ -52,7 +52,7 @@ class TickButton extends StatelessWidget {
                         key: const ValueKey('tick-loading'),
                         width: iconSize,
                         height: iconSize,
-                        child: const CircularProgressIndicator(
+                        child: const CircularProgressIndicator.adaptive(
                           strokeWidth: 2.4,
                           valueColor: AlwaysStoppedAnimation<Color>(
                             Color(0xFF8A92A3),

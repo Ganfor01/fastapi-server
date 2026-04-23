@@ -56,12 +56,14 @@ class DiaPlan {
     required this.diaSemana,
     required this.nombreDia,
     required this.fecha,
+    required this.notaLibre,
     required this.bloques,
   });
 
   final int diaSemana;
   final String nombreDia;
   final String fecha;
+  final String? notaLibre;
   final List<BloquePlan> bloques;
 
   factory DiaPlan.fromJson(Map<String, dynamic> json) {
@@ -69,6 +71,7 @@ class DiaPlan {
       diaSemana: json['dia_semana'] as int,
       nombreDia: json['nombre_dia'] as String,
       fecha: json['fecha'] as String,
+      notaLibre: json['nota_libre'] as String?,
       bloques: (json['bloques'] as List<dynamic>? ?? [])
           .map((item) => BloquePlan.fromJson(item as Map<String, dynamic>))
           .toList(),

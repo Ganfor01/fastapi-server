@@ -1,4 +1,4 @@
-class EventoFijo {
+﻿class EventoFijo {
   const EventoFijo({
     required this.id,
     required this.titulo,
@@ -12,6 +12,8 @@ class EventoFijo {
     required this.finHora,
     required this.duracionMinutos,
     required this.prioridad,
+    required this.completado,
+    required this.notasPorDia,
   });
 
   final int id;
@@ -26,9 +28,12 @@ class EventoFijo {
   final String finHora;
   final int duracionMinutos;
   final int prioridad;
+  final bool completado;
+  final Map<String, String> notasPorDia;
 
   bool get esVariosDias => fechaFin != fecha;
   bool get esTodoElDia => inicioMinutos == 0 && finMinutos == 1440;
+  int get totalNotas => notasPorDia.values.where((nota) => nota.trim().isNotEmpty).length;
 
   String get horarioLabel =>
       esVariosDias
@@ -51,6 +56,10 @@ class EventoFijo {
       finHora: json['fin_hora'] as String? ?? '',
       duracionMinutos: json['duracion_minutos'] as int? ?? 0,
       prioridad: json['prioridad'] as int? ?? 3,
+      completado: json['completado'] as bool? ?? false,
+      notasPorDia: ((json['notas_por_dia'] as Map<String, dynamic>?) ?? {})
+          .map((key, value) => MapEntry(key, value as String)),
     );
   }
 }
+

@@ -1,17 +1,30 @@
+import json
+import os
 from datetime import date, timedelta
 from typing import Annotated
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, text
 from sqlalchemy.orm import Session, joinedload
 
-from database import SessionLocal, engine
-from models import BloquePlanDB, DisponibilidadDB, EventoFijoDB, ObjetivoDB
+from database import IS_SQLITE, SessionLocal, engine
+from models import (
+    BloquePlanDB,
+    DisponibilidadDB,
+    EventoFijoDB,
+    EventoFijoNotaDB,
+    HabitoProgresoDB,
+    NotaDiaDB,
+    ObjetivoDB,
+)
 
 app = FastAPI(title="Organizador Automatico de Vida")
 
-ObjetivoDB.metadata.create_all(bind=engine)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 
 
 def asegurar_columna_fecha_fin() -> None:
@@ -22,7 +35,8 @@ def asegurar_columna_fecha_fin() -> None:
             connection.execute(text("ALTER TABLE eventos_fijos ADD COLUMN fecha_fin VARCHAR"))
 
 
-asegurar_columna_fecha_fin()
+if IS_SQLITE:
+    asegurar_columna_fecha_fin()
 
 
 def asegurar_columna_semana_inicio() -> None:
@@ -33,7 +47,24 @@ def asegurar_columna_semana_inicio() -> None:
             connection.execute(text("ALTER TABLE bloques_plan ADD COLUMN semana_inicio VARCHAR"))
 
 
-asegurar_columna_semana_inicio()
+if IS_SQLITE:
+    asegurar_columna_semana_inicio()
+
+
+def asegurar_columna_evento_completado() -> None:
+    with engine.begin() as connection:
+        columnas = connection.execute(text("PRAGMA table_info(eventos_fijos)")).fetchall()
+        nombres = {columna[1] for columna in columnas}
+        if "completado" not in nombres:
+            connection.execute(
+                text(
+                    "ALTER TABLE eventos_fijos ADD COLUMN completado BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
+
+
+if IS_SQLITE:
+    asegurar_columna_evento_completado()
 
 NOMBRES_DIAS = [
     "Lunes",
@@ -52,6 +83,48 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_current_user_id(
+    authorization: str | None = Header(default=None),
+) -> str:
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise HTTPException(
+            status_code=500,
+            detail="Falta configurar SUPABASE_URL o SUPABASE_ANON_KEY en el backend",
+        )
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Sesion no valida")
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Sesion no valida")
+
+    request = Request(
+        f"{SUPABASE_URL}/auth/v1/user",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "apikey": SUPABASE_ANON_KEY,
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=8) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise HTTPException(status_code=401, detail="Sesion no valida") from exc
+    except URLError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="No se pudo validar la sesion con Supabase",
+        ) from exc
+
+    user_id = payload.get("id")
+    if not isinstance(user_id, str) or not user_id:
+        raise HTTPException(status_code=401, detail="Sesion no valida")
+
+    return user_id
 
 
 def minutos_a_hora(minutos: int) -> str:
@@ -139,8 +212,13 @@ def serializar_objetivo(objetivo: ObjetivoDB) -> dict:
     }
 
 
-def serializar_habito(objetivo: ObjetivoDB) -> dict:
-    return serializar_objetivo(objetivo)
+def serializar_habito(
+    objetivo: ObjetivoDB,
+    progreso_semanal: int = 0,
+) -> dict:
+    data = serializar_objetivo(objetivo)
+    data["sesiones_completadas_semana"] = progreso_semanal
+    return data
 
 
 def serializar_evento_fijo(evento: EventoFijoDB) -> dict:
@@ -165,6 +243,12 @@ def serializar_evento_fijo(evento: EventoFijoDB) -> dict:
         "es_todo_el_dia": evento.inicio_minutos == 0 and evento.fin_minutos == 1440,
         "es_varios_dias": evento_ocupa_varios_dias(evento),
         "prioridad": evento.prioridad,
+        "completado": evento.completado,
+        "notas_por_dia": {
+            nota.fecha: nota.nota
+            for nota in sorted(evento.notas_por_dia, key=lambda item: item.fecha)
+            if nota.nota.strip()
+        },
     }
 
 
@@ -178,6 +262,63 @@ def serializar_disponibilidad(slot: DisponibilidadDB) -> dict:
         "inicio_hora": minutos_a_hora(slot.inicio_minutos),
         "fin_hora": minutos_a_hora(slot.fin_minutos),
     }
+
+
+def progreso_habitos_por_semana(
+    db: Session,
+    user_id: str,
+    semana_inicio: str,
+) -> dict[int, HabitoProgresoDB]:
+    registros = (
+        db.query(HabitoProgresoDB)
+        .filter(HabitoProgresoDB.user_id == user_id)
+        .filter(HabitoProgresoDB.semana_inicio == semana_inicio)
+        .all()
+    )
+    return {registro.objetivo_id: registro for registro in registros}
+
+
+def notas_por_semana(
+    db: Session,
+    user_id: str,
+    week_offset: int = 0,
+) -> dict[str, NotaDiaDB]:
+    inicio_semana, fin_semana = inicio_y_fin_semana(week_offset)
+    registros = (
+        db.query(NotaDiaDB)
+        .filter(NotaDiaDB.user_id == user_id)
+        .filter(NotaDiaDB.fecha >= inicio_semana.isoformat())
+        .filter(NotaDiaDB.fecha <= fin_semana.isoformat())
+        .all()
+    )
+    return {registro.fecha: registro for registro in registros}
+
+
+def obtener_o_crear_progreso_habito(
+    db: Session,
+    user_id: str,
+    objetivo_id: int,
+    semana_inicio: str,
+) -> HabitoProgresoDB:
+    progreso = (
+        db.query(HabitoProgresoDB)
+        .filter(HabitoProgresoDB.user_id == user_id)
+        .filter(HabitoProgresoDB.objetivo_id == objetivo_id)
+        .filter(HabitoProgresoDB.semana_inicio == semana_inicio)
+        .first()
+    )
+    if progreso is not None:
+        return progreso
+
+    progreso = HabitoProgresoDB(
+        user_id=user_id,
+        objetivo_id=objetivo_id,
+        semana_inicio=semana_inicio,
+        sesiones_completadas=0,
+    )
+    db.add(progreso)
+    db.flush()
+    return progreso
 
 
 def serializar_bloque(bloque: BloquePlanDB) -> dict:
@@ -220,6 +361,14 @@ def serializar_evento_como_bloque(evento: EventoFijoDB, fecha_bloque: date) -> d
     if evento_ocupa_varios_dias(evento):
         inicio_minutos = 0
         fin_minutos = 1440
+    nota_dia = next(
+        (
+            nota.nota
+            for nota in evento.notas_por_dia
+            if nota.fecha == fecha_bloque.isoformat() and nota.nota.strip()
+        ),
+        None,
+    )
 
     return {
         "id": evento.id,
@@ -228,6 +377,7 @@ def serializar_evento_como_bloque(evento: EventoFijoDB, fecha_bloque: date) -> d
         "titulo_objetivo": evento.titulo,
         "tipo_objetivo": "evento_fijo",
         "detalle_objetivo": evento.detalle,
+        "nota_dia": nota_dia,
         "dia_semana": dia_semana,
         "nombre_dia": nombre_dia,
         "fecha": fecha_bloque.isoformat(),
@@ -402,6 +552,7 @@ def existe_bloque_habito_en_dia(
 
 def crear_bloque(
     db: Session,
+    user_id: str,
     objetivo: ObjetivoDB,
     semana_inicio: str,
     dia_semana: int,
@@ -409,6 +560,7 @@ def crear_bloque(
     replanificado: bool = False,
 ) -> BloquePlanDB:
     bloque = BloquePlanDB(
+        user_id=user_id,
         objetivo_id=objetivo.id,
         semana_inicio=semana_inicio,
         dia_semana=dia_semana,
@@ -422,10 +574,57 @@ def crear_bloque(
     return bloque
 
 
-def obtener_plan_semanal(db: Session, week_offset: int = 0) -> dict:
+def sincronizar_bloques_hechos_con_progreso(
+    bloques_creados: list[BloquePlanDB],
+    progreso_por_habito: dict[int, HabitoProgresoDB],
+) -> None:
+    bloques_por_habito: dict[int, list[BloquePlanDB]] = {}
+    for bloque in bloques_creados:
+        bloques_por_habito.setdefault(bloque.objetivo_id, []).append(bloque)
+
+    for objetivo_id, progreso in progreso_por_habito.items():
+        bloques_habito = bloques_por_habito.get(objetivo_id, [])
+        if not bloques_habito:
+            continue
+        for bloque in bloques_habito[: progreso.sesiones_completadas]:
+            bloque.estado = "hecho"
+
+
+def marcar_sesion_habito_completada(
+    db: Session,
+    user_id: str,
+    objetivo: ObjetivoDB,
+    semana_inicio: str,
+    sincronizar_bloque: bool = True,
+) -> tuple[int, int]:
+    progreso = obtener_o_crear_progreso_habito(db, user_id, objetivo.id, semana_inicio)
+    sesiones_previas = progreso.sesiones_completadas
+    if progreso.sesiones_completadas < objetivo.sesiones_por_semana:
+        progreso.sesiones_completadas += 1
+
+    if sincronizar_bloque and progreso.sesiones_completadas > sesiones_previas:
+        bloque_pendiente = (
+            db.query(BloquePlanDB)
+            .filter(BloquePlanDB.user_id == user_id)
+            .filter(BloquePlanDB.objetivo_id == objetivo.id)
+            .filter(BloquePlanDB.semana_inicio == semana_inicio)
+            .filter(BloquePlanDB.estado == "pendiente")
+            .order_by(BloquePlanDB.dia_semana, BloquePlanDB.inicio_minutos)
+            .first()
+        )
+        if bloque_pendiente is not None:
+            bloque_pendiente.estado = "hecho"
+
+    return progreso.sesiones_completadas, objetivo.sesiones_por_semana
+
+
+def obtener_plan_semanal(db: Session, user_id: str, week_offset: int = 0) -> dict:
     semana_inicio = inicio_semana_para_offset(week_offset).isoformat()
+    progreso_habitos = progreso_habitos_por_semana(db, user_id, semana_inicio)
+    notas_dia = notas_por_semana(db, user_id, week_offset)
     objetivos = (
         db.query(ObjetivoDB)
+        .filter(ObjetivoDB.user_id == user_id)
         .filter(ObjetivoDB.tipo == "habito")
         .order_by(ObjetivoDB.fecha_creacion.desc())
         .all()
@@ -433,17 +632,21 @@ def obtener_plan_semanal(db: Session, week_offset: int = 0) -> dict:
     habitos = objetivos
     eventos_fijos = (
         db.query(EventoFijoDB)
+        .options(joinedload(EventoFijoDB.notas_por_dia))
+        .filter(EventoFijoDB.user_id == user_id)
         .order_by(EventoFijoDB.fecha, EventoFijoDB.fecha_fin, EventoFijoDB.inicio_minutos)
         .all()
     )
     disponibilidad = (
         db.query(DisponibilidadDB)
+        .filter(DisponibilidadDB.user_id == user_id)
         .order_by(DisponibilidadDB.dia_semana, DisponibilidadDB.inicio_minutos)
         .all()
     )
     bloques_query = (
         db.query(BloquePlanDB)
         .options(joinedload(BloquePlanDB.objetivo))
+        .filter(BloquePlanDB.user_id == user_id)
         .order_by(BloquePlanDB.dia_semana, BloquePlanDB.inicio_minutos)
     )
     if week_offset == 0:
@@ -482,13 +685,22 @@ def obtener_plan_semanal(db: Session, week_offset: int = 0) -> dict:
                 "dia_semana": indice,
                 "nombre_dia": nombre,
                 "fecha": fecha_dia,
+                "nota_libre": notas_dia.get(fecha_dia).nota if fecha_dia in notas_dia else None,
                 "bloques": agenda_dia,
             }
         )
 
     return {
         "objetivos": [serializar_objetivo(objetivo) for objetivo in objetivos],
-        "habitos": [serializar_habito(item) for item in habitos],
+        "habitos": [
+            serializar_habito(
+                item,
+                progreso_habitos.get(item.id).sesiones_completadas
+                if item.id in progreso_habitos
+                else 0,
+            )
+            for item in habitos
+        ],
         "eventos_fijos": [serializar_evento_fijo(evento) for evento in eventos_fijos],
         "disponibilidad": [serializar_disponibilidad(slot) for slot in disponibilidad],
         "dias": dias,
@@ -502,10 +714,12 @@ def obtener_plan_semanal(db: Session, week_offset: int = 0) -> dict:
     }
 
 
-def planificar_semana(db: Session, week_offset: int = 0) -> dict:
+def planificar_semana(db: Session, user_id: str, week_offset: int = 0) -> dict:
     semana_inicio = inicio_semana_para_offset(week_offset).isoformat()
+    progreso_habitos = progreso_habitos_por_semana(db, user_id, semana_inicio)
     disponibilidad = (
         db.query(DisponibilidadDB)
+        .filter(DisponibilidadDB.user_id == user_id)
         .order_by(DisponibilidadDB.dia_semana, DisponibilidadDB.inicio_minutos)
         .all()
     )
@@ -514,23 +728,28 @@ def planificar_semana(db: Session, week_offset: int = 0) -> dict:
 
     eventos_fijos = (
         db.query(EventoFijoDB)
+        .options(joinedload(EventoFijoDB.notas_por_dia))
+        .filter(EventoFijoDB.user_id == user_id)
         .order_by(EventoFijoDB.fecha, EventoFijoDB.fecha_fin, EventoFijoDB.inicio_minutos)
         .all()
     )
 
     if week_offset == 0:
-        db.query(BloquePlanDB).filter(
+        db.query(BloquePlanDB).filter(BloquePlanDB.user_id == user_id).filter(
             or_(
                 BloquePlanDB.semana_inicio == semana_inicio,
                 BloquePlanDB.semana_inicio.is_(None),
             )
         ).delete()
     else:
-        db.query(BloquePlanDB).filter(BloquePlanDB.semana_inicio == semana_inicio).delete()
+        db.query(BloquePlanDB).filter(BloquePlanDB.user_id == user_id).filter(
+            BloquePlanDB.semana_inicio == semana_inicio
+        ).delete()
     db.commit()
 
     objetivos = (
         db.query(ObjetivoDB)
+        .filter(ObjetivoDB.user_id == user_id)
         .filter(ObjetivoDB.completado.is_(False))
         .order_by(ObjetivoDB.fecha_creacion.desc())
         .all()
@@ -556,6 +775,7 @@ def planificar_semana(db: Session, week_offset: int = 0) -> dict:
             dia_semana, inicio_minutos = hueco
             bloque = crear_bloque(
                 db,
+                user_id,
                 objetivo,
                 semana_inicio,
                 dia_semana,
@@ -563,8 +783,9 @@ def planificar_semana(db: Session, week_offset: int = 0) -> dict:
             )
             bloques_creados.append(bloque)
 
+    sincronizar_bloques_hechos_con_progreso(bloques_creados, progreso_habitos)
     db.commit()
-    return obtener_plan_semanal(db, week_offset)
+    return obtener_plan_semanal(db, user_id, week_offset)
 
 
 class ObjetivoCrear(BaseModel):
@@ -592,6 +813,53 @@ class EventoFijoCrear(BaseModel):
     inicio_minutos: Annotated[int, Field(ge=0, le=1439)]
     fin_minutos: Annotated[int, Field(ge=1, le=1440)]
     prioridad: Annotated[int, Field(ge=1, le=5)] = 3
+    notas_por_dia: dict[str, str] = Field(default_factory=dict)
+
+
+def validar_notas_evento(
+    notas_por_dia: dict[str, str],
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> dict[str, str]:
+    notas_limpias: dict[str, str] = {}
+    for fecha_iso, nota in notas_por_dia.items():
+        texto = nota.strip()
+        if not texto:
+            continue
+        if len(texto) > 160:
+            raise HTTPException(
+                status_code=400,
+                detail="Cada nota diaria debe tener como maximo 160 caracteres",
+            )
+        try:
+            fecha_nota = date.fromisoformat(fecha_iso)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Hay una nota diaria con fecha invalida",
+            ) from exc
+        if fecha_nota < fecha_inicio or fecha_nota > fecha_fin:
+            raise HTTPException(
+                status_code=400,
+                detail="Las notas diarias deben estar dentro del rango del evento",
+            )
+        notas_limpias[fecha_iso] = texto
+    return notas_limpias
+
+
+def reemplazar_notas_evento(
+    evento: EventoFijoDB,
+    notas_por_dia: dict[str, str],
+) -> None:
+    evento.notas_por_dia.clear()
+    for fecha_iso, nota in sorted(notas_por_dia.items()):
+        evento.notas_por_dia.append(
+            EventoFijoNotaDB(
+                user_id=evento.user_id,
+                fecha=fecha_iso,
+                nota=nota,
+            )
+        )
 
 
 class DisponibilidadItem(BaseModel):
@@ -604,19 +872,32 @@ class DisponibilidadPayload(BaseModel):
     slots: list[DisponibilidadItem]
 
 
+class NotaDiaPayload(BaseModel):
+    nota: Annotated[str, Field(max_length=240)] = ""
+
+
 @app.get("/")
 def inicio():
     return {"mensaje": "Organizador semanal funcionando"}
 
 
 @app.get("/plan-semanal")
-def ver_plan_semanal(week_offset: int = 0, db: Session = Depends(get_db)):
-    return obtener_plan_semanal(db, week_offset)
+def ver_plan_semanal(
+    week_offset: int = 0,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    return obtener_plan_semanal(db, user_id, week_offset)
 
 
 @app.post("/objetivos")
-def crear_objetivo(payload: ObjetivoCrear, db: Session = Depends(get_db)):
+def crear_objetivo(
+    payload: ObjetivoCrear,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
     objetivo = ObjetivoDB(
+        user_id=user_id,
         titulo=payload.titulo,
         detalle=payload.detalle,
         tipo="habito",
@@ -632,8 +913,13 @@ def crear_objetivo(payload: ObjetivoCrear, db: Session = Depends(get_db)):
 
 
 @app.post("/habitos")
-def crear_habito(payload: HabitoCrear, db: Session = Depends(get_db)):
+def crear_habito(
+    payload: HabitoCrear,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
     objetivo = ObjetivoDB(
+        user_id=user_id,
         titulo=payload.titulo,
         detalle=payload.detalle,
         tipo="habito",
@@ -649,7 +935,11 @@ def crear_habito(payload: HabitoCrear, db: Session = Depends(get_db)):
 
 
 @app.post("/eventos-fijos")
-def crear_evento_fijo(payload: EventoFijoCrear, db: Session = Depends(get_db)):
+def crear_evento_fijo(
+    payload: EventoFijoCrear,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
     try:
         fecha_inicio = date.fromisoformat(payload.fecha)
     except ValueError as exc:
@@ -663,11 +953,13 @@ def crear_evento_fijo(payload: EventoFijoCrear, db: Session = Depends(get_db)):
 
     if fecha_fin_date < fecha_inicio:
         raise HTTPException(status_code=400, detail="La fecha de vuelta no puede ser anterior")
+    notas_limpias = validar_notas_evento(payload.notas_por_dia, fecha_inicio, fecha_fin_date)
 
     if payload.fin_minutos <= payload.inicio_minutos:
         raise HTTPException(status_code=400, detail="La hora de fin debe ser posterior")
 
     evento = EventoFijoDB(
+        user_id=user_id,
         titulo=payload.titulo,
         detalle=payload.detalle,
         fecha=payload.fecha,
@@ -677,6 +969,7 @@ def crear_evento_fijo(payload: EventoFijoCrear, db: Session = Depends(get_db)):
         prioridad=payload.prioridad,
     )
     db.add(evento)
+    reemplazar_notas_evento(evento, notas_limpias)
     db.commit()
     db.refresh(evento)
     return {"mensaje": "Evento creado", "evento_fijo": serializar_evento_fijo(evento)}
@@ -687,8 +980,14 @@ def actualizar_evento_fijo(
     evento_id: int,
     payload: EventoFijoCrear,
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
 ):
-    evento = db.query(EventoFijoDB).filter(EventoFijoDB.id == evento_id).first()
+    evento = (
+        db.query(EventoFijoDB)
+        .filter(EventoFijoDB.id == evento_id)
+        .filter(EventoFijoDB.user_id == user_id)
+        .first()
+    )
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
 
@@ -705,6 +1004,7 @@ def actualizar_evento_fijo(
 
     if fecha_fin_date < fecha_inicio:
         raise HTTPException(status_code=400, detail="La fecha de vuelta no puede ser anterior")
+    notas_limpias = validar_notas_evento(payload.notas_por_dia, fecha_inicio, fecha_fin_date)
 
     if payload.fin_minutos <= payload.inicio_minutos:
         raise HTTPException(status_code=400, detail="La hora de fin debe ser posterior")
@@ -716,6 +1016,7 @@ def actualizar_evento_fijo(
     evento.inicio_minutos = 0 if fecha_fin != payload.fecha else payload.inicio_minutos
     evento.fin_minutos = 1440 if fecha_fin != payload.fecha else payload.fin_minutos
     evento.prioridad = payload.prioridad
+    reemplazar_notas_evento(evento, notas_limpias)
     db.commit()
     db.refresh(evento)
     return {
@@ -725,8 +1026,17 @@ def actualizar_evento_fijo(
 
 
 @app.delete("/eventos-fijos/{evento_id}")
-def eliminar_evento_fijo(evento_id: int, db: Session = Depends(get_db)):
-    evento = db.query(EventoFijoDB).filter(EventoFijoDB.id == evento_id).first()
+def eliminar_evento_fijo(
+    evento_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    evento = (
+        db.query(EventoFijoDB)
+        .filter(EventoFijoDB.id == evento_id)
+        .filter(EventoFijoDB.user_id == user_id)
+        .first()
+    )
     if not evento:
         raise HTTPException(status_code=404, detail="Evento no encontrado")
 
@@ -735,10 +1045,38 @@ def eliminar_evento_fijo(evento_id: int, db: Session = Depends(get_db)):
     return {"mensaje": "Evento eliminado"}
 
 
+@app.patch("/eventos-fijos/{evento_id}/completar")
+def completar_evento_fijo(
+    evento_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    evento = (
+        db.query(EventoFijoDB)
+        .filter(EventoFijoDB.id == evento_id)
+        .filter(EventoFijoDB.user_id == user_id)
+        .first()
+    )
+    if not evento:
+        raise HTTPException(status_code=404, detail="Evento no encontrado")
+
+    evento.completado = not evento.completado
+    db.commit()
+    db.refresh(evento)
+    return {
+        "mensaje": "Evento completado" if evento.completado else "Evento reabierto",
+        "evento_fijo": serializar_evento_fijo(evento),
+    }
+
+
 @app.get("/objetivos")
-def listar_objetivos(db: Session = Depends(get_db)):
+def listar_objetivos(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
     objetivos = (
         db.query(ObjetivoDB)
+        .filter(ObjetivoDB.user_id == user_id)
         .filter(ObjetivoDB.tipo == "habito")
         .order_by(ObjetivoDB.fecha_creacion.desc())
         .all()
@@ -747,9 +1085,13 @@ def listar_objetivos(db: Session = Depends(get_db)):
 
 
 @app.get("/habitos")
-def listar_habitos(db: Session = Depends(get_db)):
+def listar_habitos(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
     habitos = (
         db.query(ObjetivoDB)
+        .filter(ObjetivoDB.user_id == user_id)
         .filter(ObjetivoDB.tipo == "habito")
         .order_by(ObjetivoDB.fecha_creacion.desc())
         .all()
@@ -757,47 +1099,115 @@ def listar_habitos(db: Session = Depends(get_db)):
     return [serializar_habito(item) for item in habitos]
 
 
+@app.patch("/habitos/{habito_id}/registrar-sesion")
+def registrar_sesion_habito(
+    habito_id: int,
+    week_offset: int = 0,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    habito = (
+        db.query(ObjetivoDB)
+        .filter(ObjetivoDB.user_id == user_id)
+        .filter(ObjetivoDB.id == habito_id)
+        .filter(ObjetivoDB.tipo == "habito")
+        .first()
+    )
+    if not habito:
+        raise HTTPException(status_code=404, detail="Habito no encontrado")
+
+    semana_inicio = inicio_semana_para_offset(week_offset).isoformat()
+    sesiones_completadas, sesiones_totales = marcar_sesion_habito_completada(
+        db,
+        user_id,
+        habito,
+        semana_inicio,
+    )
+    db.commit()
+
+    mensaje = (
+        "Habito completado esta semana"
+        if sesiones_completadas >= sesiones_totales
+        else "Sesion de habito registrada"
+    )
+    return {
+        "mensaje": mensaje,
+        "sesiones_completadas_semana": sesiones_completadas,
+        "sesiones_por_semana": sesiones_totales,
+    }
+
+
 @app.patch("/objetivos/{objetivo_id}/completar")
-def completar_objetivo(objetivo_id: int, db: Session = Depends(get_db)):
-    objetivo = db.query(ObjetivoDB).filter(ObjetivoDB.id == objetivo_id).first()
+def completar_objetivo(
+    objetivo_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    objetivo = (
+        db.query(ObjetivoDB)
+        .filter(ObjetivoDB.id == objetivo_id)
+        .filter(ObjetivoDB.user_id == user_id)
+        .first()
+    )
     if not objetivo:
         raise HTTPException(status_code=404, detail="Objetivo no encontrado")
 
     objetivo.completado = True
-    db.query(BloquePlanDB).filter(BloquePlanDB.objetivo_id == objetivo_id).delete()
+    db.query(BloquePlanDB).filter(BloquePlanDB.user_id == user_id).filter(
+        BloquePlanDB.objetivo_id == objetivo_id
+    ).delete()
     db.commit()
     return {"mensaje": "Objetivo completado"}
 
 
 @app.delete("/objetivos/{objetivo_id}")
-def eliminar_objetivo(objetivo_id: int, db: Session = Depends(get_db)):
-    objetivo = db.query(ObjetivoDB).filter(ObjetivoDB.id == objetivo_id).first()
+def eliminar_objetivo(
+    objetivo_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    objetivo = (
+        db.query(ObjetivoDB)
+        .filter(ObjetivoDB.id == objetivo_id)
+        .filter(ObjetivoDB.user_id == user_id)
+        .first()
+    )
     if not objetivo:
         raise HTTPException(status_code=404, detail="Objetivo no encontrado")
-    if not objetivo.completado:
+    if objetivo.tipo != "habito" and not objetivo.completado:
         raise HTTPException(
             status_code=400,
             detail="Solo puedes eliminar objetivos que ya esten completados",
         )
 
-    db.query(BloquePlanDB).filter(BloquePlanDB.objetivo_id == objetivo_id).delete()
+    db.query(BloquePlanDB).filter(BloquePlanDB.user_id == user_id).filter(
+        BloquePlanDB.objetivo_id == objetivo_id
+    ).delete()
+    db.query(HabitoProgresoDB).filter(HabitoProgresoDB.user_id == user_id).filter(
+        HabitoProgresoDB.objetivo_id == objetivo_id
+    ).delete()
     db.delete(objetivo)
     db.commit()
     return {"mensaje": "Objetivo eliminado"}
 
 
 @app.post("/disponibilidad")
-def guardar_disponibilidad(payload: DisponibilidadPayload, db: Session = Depends(get_db)):
+def guardar_disponibilidad(
+    payload: DisponibilidadPayload,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
     for slot in payload.slots:
         if slot.fin_minutos <= slot.inicio_minutos:
             raise HTTPException(status_code=400, detail="Cada bloque debe terminar despues de empezar")
 
-    db.query(DisponibilidadDB).delete()
+    db.query(DisponibilidadDB).filter(DisponibilidadDB.user_id == user_id).delete()
     db.commit()
 
     for slot in payload.slots:
         db.add(
             DisponibilidadDB(
+                user_id=user_id,
                 dia_semana=slot.dia_semana,
                 inicio_minutos=slot.inicio_minutos,
                 fin_minutos=slot.fin_minutos,
@@ -809,42 +1219,107 @@ def guardar_disponibilidad(payload: DisponibilidadPayload, db: Session = Depends
 
 
 @app.get("/disponibilidad")
-def ver_disponibilidad(db: Session = Depends(get_db)):
+def ver_disponibilidad(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
     slots = (
         db.query(DisponibilidadDB)
+        .filter(DisponibilidadDB.user_id == user_id)
         .order_by(DisponibilidadDB.dia_semana, DisponibilidadDB.inicio_minutos)
         .all()
     )
     return [serializar_disponibilidad(slot) for slot in slots]
 
 
+@app.put("/notas-dia/{fecha_iso}")
+def guardar_nota_dia(
+    fecha_iso: str,
+    payload: NotaDiaPayload,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    try:
+        date.fromisoformat(fecha_iso)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Fecha invalida para la nota") from exc
+
+    texto = payload.nota.strip()
+    nota_existente = (
+        db.query(NotaDiaDB)
+        .filter(NotaDiaDB.user_id == user_id)
+        .filter(NotaDiaDB.fecha == fecha_iso)
+        .first()
+    )
+
+    if not texto:
+        if nota_existente is not None:
+            db.delete(nota_existente)
+            db.commit()
+        return {"mensaje": "Nota eliminada"}
+
+    if nota_existente is None:
+        nota_existente = NotaDiaDB(user_id=user_id, fecha=fecha_iso, nota=texto)
+        db.add(nota_existente)
+    else:
+        nota_existente.nota = texto
+
+    db.commit()
+    return {"mensaje": "Nota guardada", "nota": texto}
+
+
 @app.post("/planificar-semana")
-def ejecutar_planificacion(week_offset: int = 0, db: Session = Depends(get_db)):
-    return planificar_semana(db, week_offset)
+def ejecutar_planificacion(
+    week_offset: int = 0,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
+    return planificar_semana(db, user_id, week_offset)
 
 
 @app.patch("/bloques/{bloque_id}/hecho")
-def marcar_bloque_hecho(bloque_id: int, db: Session = Depends(get_db)):
+def marcar_bloque_hecho(
+    bloque_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
     bloque = (
         db.query(BloquePlanDB)
         .options(joinedload(BloquePlanDB.objetivo))
+        .filter(BloquePlanDB.user_id == user_id)
         .filter(BloquePlanDB.id == bloque_id)
         .first()
     )
     if not bloque:
         raise HTTPException(status_code=404, detail="Bloque no encontrado")
 
+    if bloque.estado == "hecho":
+        return {"mensaje": "Bloque completado", "bloque": serializar_bloque(bloque)}
+
     bloque.estado = "hecho"
+    if bloque.objetivo and bloque.objetivo.tipo == "habito":
+        marcar_sesion_habito_completada(
+            db,
+            user_id,
+            bloque.objetivo,
+            bloque.semana_inicio or inicio_semana_para_offset().isoformat(),
+            sincronizar_bloque=False,
+        )
     db.commit()
     db.refresh(bloque)
     return {"mensaje": "Bloque completado", "bloque": serializar_bloque(bloque)}
 
 
 @app.patch("/bloques/{bloque_id}/fallado")
-def marcar_bloque_fallado(bloque_id: int, db: Session = Depends(get_db)):
+def marcar_bloque_fallado(
+    bloque_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user_id),
+):
     bloque = (
         db.query(BloquePlanDB)
         .options(joinedload(BloquePlanDB.objetivo))
+        .filter(BloquePlanDB.user_id == user_id)
         .filter(BloquePlanDB.id == bloque_id)
         .first()
     )
@@ -854,11 +1329,13 @@ def marcar_bloque_fallado(bloque_id: int, db: Session = Depends(get_db)):
     bloque.estado = "fallado"
     disponibilidad = (
         db.query(DisponibilidadDB)
+        .filter(DisponibilidadDB.user_id == user_id)
         .order_by(DisponibilidadDB.dia_semana, DisponibilidadDB.inicio_minutos)
         .all()
     )
     otros_bloques_query = (
         db.query(BloquePlanDB)
+        .filter(BloquePlanDB.user_id == user_id)
         .filter(BloquePlanDB.id != bloque.id)
         .order_by(BloquePlanDB.dia_semana, BloquePlanDB.inicio_minutos)
     )
@@ -869,6 +1346,8 @@ def marcar_bloque_fallado(bloque_id: int, db: Session = Depends(get_db)):
     otros_bloques = otros_bloques_query.all()
     eventos_fijos = (
         db.query(EventoFijoDB)
+        .options(joinedload(EventoFijoDB.notas_por_dia))
+        .filter(EventoFijoDB.user_id == user_id)
         .order_by(EventoFijoDB.fecha, EventoFijoDB.inicio_minutos)
         .all()
     )
@@ -903,6 +1382,7 @@ def marcar_bloque_fallado(bloque_id: int, db: Session = Depends(get_db)):
         if hueco is not None:
             nuevo_bloque = crear_bloque(
                 db,
+                user_id,
                 bloque.objetivo,
                 bloque.semana_inicio or inicio_semana_para_offset().isoformat(),
                 dia_semana,

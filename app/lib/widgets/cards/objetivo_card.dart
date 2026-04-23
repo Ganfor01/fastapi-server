@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../models/objetivo.dart';
 import '../../theme/app_theme.dart';
@@ -15,6 +16,10 @@ class ObjetivoCard extends StatelessWidget {
     required this.onComplete,
     required this.onDelete,
     required this.isBusy,
+    this.progressCompleted,
+    this.progressTotal,
+    this.onProgress,
+    this.progressBusy = false,
   });
 
   final Objetivo objetivo;
@@ -22,10 +27,16 @@ class ObjetivoCard extends StatelessWidget {
   final VoidCallback onComplete;
   final VoidCallback onDelete;
   final bool isBusy;
+  final int? progressCompleted;
+  final int? progressTotal;
+  final VoidCallback? onProgress;
+  final bool progressBusy;
 
   @override
   Widget build(BuildContext context) {
     final estaCompletado = objetivo.completado;
+    final usaProgresoSemanal =
+        progressCompleted != null && progressTotal != null && onProgress != null;
     final palette = context.palette;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final visual = _visualObjetivo(objetivo.tipo, isDark);
@@ -151,6 +162,17 @@ class ObjetivoCard extends StatelessWidget {
                                 ],
                               ),
                             )
+                          : usaProgresoSemanal
+                          ? Align(
+                              key: const ValueKey('weekly-progress-action'),
+                              alignment: Alignment.centerRight,
+                              child: _WeeklyProgressButton(
+                                completed: progressCompleted!,
+                                total: progressTotal!,
+                                isBusy: progressBusy,
+                                onPressed: onProgress!,
+                              ),
+                            )
                           : Align(
                               key: const ValueKey('complete-action'),
                               alignment: Alignment.centerRight,
@@ -209,6 +231,28 @@ class ObjetivoCard extends StatelessWidget {
                     MiniPill(label: 'Límite ${objetivo.fechaLimite}'),
                 ],
               ),
+              if (usaProgresoSemanal) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                    label: const Text('Dejar este hábito'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: isDark
+                          ? const Color(0xFFFFB6AE)
+                          : const Color(0xFFD64545),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -271,4 +315,296 @@ class _ObjetivoVisual {
   final Color helperBackground;
   final Color helperForeground;
   final List<Color> backgroundColors;
+}
+
+class _WeeklyProgressButton extends StatefulWidget {
+  const _WeeklyProgressButton({
+    required this.completed,
+    required this.total,
+    required this.isBusy,
+    required this.onPressed,
+  });
+
+  final int completed;
+  final int total;
+  final bool isBusy;
+  final VoidCallback onPressed;
+
+  @override
+  State<_WeeklyProgressButton> createState() => _WeeklyProgressButtonState();
+}
+
+class _WeeklyProgressButtonState extends State<_WeeklyProgressButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _celebrationController;
+  late final Animation<double> _sparkleFade;
+  late final Animation<double> _sparkleScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _celebrationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _sparkleFade = CurvedAnimation(
+      parent: _celebrationController,
+      curve: const Interval(0.0, 0.7, curve: Curves.easeOut),
+    );
+    _sparkleScale = Tween<double>(begin: 0.7, end: 1.15).animate(
+      CurvedAnimation(
+        parent: _celebrationController,
+        curve: Curves.easeOutBack,
+      ),
+    );
+    _celebrationController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _celebrationController.reset();
+      }
+    });
+
+    if (_isComplete(widget.completed, widget.total)) {
+      _celebrationController.value = 0;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _WeeklyProgressButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final wasComplete = _isComplete(oldWidget.completed, oldWidget.total);
+    final isComplete = _isComplete(widget.completed, widget.total);
+    if (!wasComplete && isComplete) {
+      HapticFeedback.lightImpact();
+      _celebrationController
+        ..reset()
+        ..forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    _celebrationController.dispose();
+    super.dispose();
+  }
+
+  bool _isComplete(int completed, int total) => total > 0 && completed >= total;
+
+  @override
+  Widget build(BuildContext context) {
+    final completed = widget.completed;
+    final total = widget.total;
+    final isBusy = widget.isBusy;
+    final ratio = total <= 0 ? 0.0 : (completed / total).clamp(0.0, 1.0);
+    final isComplete = _isComplete(completed, total);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Tooltip(
+      message: isComplete
+          ? 'Hábito completado esta semana'
+          : 'Marcar una sesión semanal',
+      child: InkWell(
+        onTap: isBusy || isComplete ? null : widget.onPressed,
+        borderRadius: BorderRadius.circular(999),
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: SizedBox(
+            width: 62,
+            height: 62,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                FadeTransition(
+                  opacity: _sparkleFade,
+                  child: ScaleTransition(
+                    scale: _sparkleScale,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        _SparkDot(
+                          alignment: const Alignment(0, -1),
+                          color: isDark
+                              ? const Color(0xFF92E4B0)
+                              : const Color(0xFF2FB36B),
+                          size: 8,
+                        ),
+                        _SparkDot(
+                          alignment: const Alignment(0.92, -0.38),
+                          color: isDark
+                              ? const Color(0xFFB9CCFF)
+                              : const Color(0xFF4C7BF4),
+                          size: 6,
+                        ),
+                        _SparkDot(
+                          alignment: const Alignment(-0.92, -0.2),
+                          color: isDark
+                              ? const Color(0xFFE6BD74)
+                              : const Color(0xFFF0B44C),
+                          size: 6,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: 0, end: ratio),
+                  duration: const Duration(milliseconds: 420),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, animatedRatio, _) {
+                    return SizedBox(
+                      width: 62,
+                      height: 62,
+                      child: CircularProgressIndicator(
+                        value: animatedRatio,
+                        strokeWidth: 5,
+                        backgroundColor: isDark
+                            ? const Color(0xFF243128)
+                            : const Color(0xFFE7EDF5),
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isDark
+                              ? const Color(0xFF92E4B0)
+                              : const Color(0xFF2FB36B),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                AnimatedScale(
+                  scale: isComplete ? 1.06 : 1,
+                  duration: const Duration(milliseconds: 260),
+                  curve: Curves.easeOutBack,
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFFE3EBE5)
+                          : const Color(0xFFF8FAFC),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: isDark
+                            ? const Color(0xFFC8D5CC)
+                            : const Color(0xFFD9DFEA),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isDark
+                              ? const Color(0x22000000)
+                              : const Color(0x120F172A),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 240),
+                        switchInCurve: Curves.easeOutBack,
+                        switchOutCurve: Curves.easeInCubic,
+                        transitionBuilder: (child, animation) {
+                          return FadeTransition(
+                            opacity: animation,
+                            child: ScaleTransition(
+                              scale: animation,
+                              child: child,
+                            ),
+                          );
+                        },
+                        child: isComplete
+                            ? Icon(
+                                key: const ValueKey('weekly-check'),
+                                Icons.check_rounded,
+                                size: 20,
+                                color: isDark
+                                    ? const Color(0xFF1F8A4C)
+                                    : const Color(0xFF2FB36B),
+                              )
+                            : Column(
+                                key: ValueKey('weekly-counter-$completed-$total'),
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '$completed/$total',
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF0F172A),
+                                      height: 1,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (isBusy)
+                  Positioned(
+                    right: 2,
+                    top: 2,
+                    child: Container(
+                      width: 18,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF1A211C)
+                            : const Color(0xFFFFFFFF),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: isDark
+                                ? const Color(0x22000000)
+                                : const Color(0x120F172A),
+                            blurRadius: 6,
+                          ),
+                        ],
+                      ),
+                      child: const Padding(
+                        padding: EdgeInsets.all(3),
+                        child: CircularProgressIndicator.adaptive(
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SparkDot extends StatelessWidget {
+  const _SparkDot({
+    required this.alignment,
+    required this.color,
+    required this.size,
+  });
+
+  final Alignment alignment;
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: alignment,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.35),
+              blurRadius: 8,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
