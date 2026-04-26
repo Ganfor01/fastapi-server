@@ -47,22 +47,30 @@ class HeroPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: palette.heroChipBackground,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  'Organizador automático de vida',
-                  style: TextStyle(
-                    color: palette.heroChipForeground,
-                    fontWeight: FontWeight.w700,
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: palette.heroChipBackground,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Organizador automático de vida',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: palette.heroChipForeground,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 10),
               _ThemeModeButton(
                 themeMode: themeMode,
                 onSelected: onThemeModeSelected,
@@ -151,7 +159,7 @@ class _ThemeModeButton extends StatelessWidget {
         PopupMenuItem(value: ThemeMode.dark, child: Text('Oscuro')),
       ],
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
         decoration: BoxDecoration(
           color: palette.secondarySurface.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(18),
@@ -161,7 +169,7 @@ class _ThemeModeButton extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(_themeIcon(themeMode), size: 18, color: palette.titleColor),
-            const SizedBox(width: 8),
+            const SizedBox(width: 6),
             Text(
               'Modo',
               style: TextStyle(

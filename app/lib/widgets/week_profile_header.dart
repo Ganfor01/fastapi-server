@@ -111,20 +111,22 @@ class WeekProfileHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 18),
-          Row(
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               OutlinedButton.icon(
                 onPressed: onPreviousWeek,
                 icon: const Icon(Icons.chevron_left_rounded),
                 label: const Text('Anterior'),
               ),
-              const SizedBox(width: 10),
               OutlinedButton.icon(
                 onPressed: onNextWeek,
                 icon: const Icon(Icons.chevron_right_rounded),
                 label: const Text('Siguiente'),
               ),
-              const Spacer(),
               FilledButton(
                 onPressed: isCurrentWeek ? null : onToday,
                 child: const Text('Hoy'),

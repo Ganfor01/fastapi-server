@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AuthGateScreen extends StatefulWidget {
@@ -40,6 +41,21 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
     }
     if (normalized.contains('signup is disabled')) {
       return 'Ahora mismo no se pueden crear cuentas nuevas.';
+    }
+    return 'No se pudo completar el acceso. Inténtalo de nuevo.';
+  }
+
+  String _friendlyGenericError(Object error) {
+    final raw = error.toString().toLowerCase();
+    if (error is ClientException ||
+        raw.contains('socketexception') ||
+        raw.contains('failed host lookup') ||
+        raw.contains('network') ||
+        raw.contains('connection')) {
+      return 'No se pudo conectar con el servicio. Revisa tu conexión e inténtalo de nuevo.';
+    }
+    if (raw.contains('certificate') || raw.contains('handshake')) {
+      return 'No se pudo establecer una conexión segura con el servicio.';
     }
     return 'No se pudo completar el acceso. Inténtalo de nuevo.';
   }
@@ -95,12 +111,13 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
       setState(() {
         _message = _friendlyAuthMessage(error.message);
       });
-    } catch (_) {
+    } catch (error) {
+      debugPrint('Auth error: $error');
       if (!mounted) {
         return;
       }
       setState(() {
-        _message = 'No se pudo completar el acceso. Inténtalo de nuevo.';
+        _message = _friendlyGenericError(error);
       });
     } finally {
       if (mounted) {

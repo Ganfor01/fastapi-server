@@ -10,7 +10,7 @@ class ApiService {
   ApiService({http.Client? client}) : _client = client ?? http.Client();
 
   final http.Client _client;
-  static const _productionBaseUrl = 'https://api.weekaiapp.es';
+  static const _productionBaseUrl = 'https://weekaiapp.es';
 
   static String get baseUrl {
     const override = String.fromEnvironment('API_BASE_URL', defaultValue: '');
