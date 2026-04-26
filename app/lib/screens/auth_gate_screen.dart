@@ -42,7 +42,9 @@ class _AuthGateScreenState extends State<AuthGateScreen> {
     if (normalized.contains('signup is disabled')) {
       return 'Ahora mismo no se pueden crear cuentas nuevas.';
     }
-    return 'No se pudo completar el acceso. Inténtalo de nuevo.';
+    return message.trim().isEmpty
+        ? 'No se pudo completar el acceso. Inténtalo de nuevo.'
+        : message;
   }
 
   String _friendlyGenericError(Object error) {
